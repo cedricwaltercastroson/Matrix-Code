@@ -9,16 +9,16 @@
 #include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
-#define EXIT_SUCCESS    0
-#define EXIT_FAILURE    1
-#define RAIN_WIDTH      20
-#define RAIN_HEIGHT     20
-#define RAIN_START_Y    0
-#define RAINDROP_COUNT  2048
-#define SpawnFrame      0.01f
-#define MoveFrame       0.03f
-#define Increment       3 //tail effect remember to also modify incrementmax which is n-1 due to array null terminator
-#define IncrementMax    4 //increment - 1
+#define EXIT_SUCCESS            0
+#define EXIT_FAILURE            1
+#define FONT_SIZE               24
+#define RAIN_WIDTH_HEIGHT       20
+#define RAIN_START_Y            0
+#define RAINDROP_COUNT          2048
+#define SpawnFrame              0.05f//0.025f
+#define MoveFrame               0.05f//0.05f
+#define Increment               6 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
+#define IncrementMax            7 //increment - 1
 
 void initialize(void);
 void terminate(int exit_code);
@@ -42,8 +42,8 @@ typedef struct {
 SDL2APP app = {
   .running = 1,
   .srain = {0},
-  .dx = 0,
-  .dy = RAIN_HEIGHT,
+  .dx = RAIN_WIDTH_HEIGHT,
+  .dy = RAIN_WIDTH_HEIGHT,
   .fps = 0,
 };
 
@@ -406,6 +406,12 @@ SDL_Texture* texthead[62] = { NULL };
 SDL_Surface* surfacehead[62] = { NULL };
 SDL_Texture* textbody[62] = { NULL };
 SDL_Surface* surfacebody[62] = { NULL };
+SDL_Texture* texttail[62] = { NULL };
+SDL_Surface* surfacetail[62] = { NULL };
+SDL_Texture* textfade[62] = { NULL };
+SDL_Surface* surfacefade[62] = { NULL };
+SDL_Texture* texttaper[62] = { NULL };
+SDL_Surface* surfacetaper[62] = { NULL };
 SDL_Texture* textempty = NULL;
 SDL_Surface* surfaceempty = NULL;
 
@@ -428,13 +434,19 @@ int main(int argc, char* argv[])
 
     int i = 0;
 
-    font1 = TTF_OpenFont("matrix.ttf", 24);
+    font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
 
-    SDL_Color foregroundhead = { 255, 255, 255 };
+    SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 41, 150, 23 };
+    SDL_Color foregroundbody = { 0, 143, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
+    SDL_Color foregroundtail = { 0, 59, 0 };
+    SDL_Color backgroundtail = { 0, 0, 0 };
+    SDL_Color foregroundfade = { 0, 47, 0 };
+    SDL_Color backgroundfade = { 0, 0, 0 };
+    SDL_Color foregroundtaper = { 0, 25, 0 };
+    SDL_Color backgroundtaper = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
 
@@ -462,6 +474,15 @@ int main(int argc, char* argv[])
 
             surfacebody[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundbody, backgroundbody);
             textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
+
+            surfacetail[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtail, backgroundtail);
+            texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
+
+            surfacefade[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundfade, backgroundfade);
+            textfade[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacefade[srn]);
+
+            surfacetaper[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtaper, backgroundtaper);
+            texttaper[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetaper[srn]);
         }
 
         if (FrameTime1 > SpawnFrame)
@@ -506,6 +527,15 @@ int main(int argc, char* argv[])
 
             SDL_DestroyTexture(textbody[srnclean]);
             SDL_FreeSurface(surfacebody[srnclean]);
+
+            SDL_DestroyTexture(texttail[srnclean]);
+            SDL_FreeSurface(surfacetail[srnclean]);
+
+            SDL_DestroyTexture(textfade[srnclean]);
+            SDL_FreeSurface(surfacefade[srnclean]);
+
+            SDL_DestroyTexture(texttaper[srnclean]);
+            SDL_FreeSurface(surfacetaper[srnclean]);
         }
 
         SDL_DestroyTexture(textempty);
@@ -637,8 +667,24 @@ int spawn_rain(int i)
         }
         else if (t == 2)
         {
-            app.srain[i][t].y = app.srain[i][t - 2].y - DM.h;
+            app.srain[i][t].y = app.srain[i][t - 2].y - 60;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][2].w, &app.srain[i][2].h); //spawn data but display nothing
+        }
+        else if (t == 3)
+        {
+            app.srain[i][t].y = app.srain[i][t - 3].y - 500;
+            SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][3].w, &app.srain[i][3].h); //spawn data but display nothing
+        }
+        else if (t == 4)
+        {
+            app.srain[i][t].y = app.srain[i][t - 4].y - 560;
+            SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][4].w, &app.srain[i][4].h); //spawn data but display nothing
+        }
+
+        else if (t == 5)
+        {
+            app.srain[i][t].y = app.srain[i][t - 5].y - 600;
+            SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][5].w, &app.srain[i][5].h); //spawn data but display nothing
         }
     }
 
@@ -649,6 +695,9 @@ int move_rain(int i)
 {
     int randomhead = rand() % 61;
     int randombody = rand() % 61;
+    int randomtail = rand() % 61;
+    int randomfade = rand() % 61;
+    int randomtaper = rand() % 61;
 
     app.srain[i][0].y = app.srain[i][0].y + app.dy;
 
@@ -660,7 +709,19 @@ int move_rain(int i)
 
     app.srain[i][2].y = app.srain[i][2].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][2]); //Start is playing something
+    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][2]); //Start is playing something
+
+    app.srain[i][3].y = app.srain[i][3].y + app.dy;
+
+    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][3]); //Start is playing something
+
+    app.srain[i][4].y = app.srain[i][4].y + app.dy;
+
+    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][4]); //Start is playing something
+
+    app.srain[i][5].y = app.srain[i][5].y + app.dy;
+
+    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][5]); //Start is playing something
 
     return i;
 }
