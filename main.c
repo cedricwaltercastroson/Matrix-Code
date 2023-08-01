@@ -15,7 +15,7 @@
 #define RAIN_WIDTH_HEIGHT       20
 #define RAIN_START_Y            0
 #define RAINDROP_COUNT          2048
-#define SpawnFrame              0.05f//0.025f
+#define SpawnFrame              0.025f//0.025f
 #define MoveFrame               0.05f//0.05f
 #define Increment               7 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
 #define IncrementMax            8 //increment - 1
@@ -612,7 +612,7 @@ void initialize()
     Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 4096);
     Mix_AllocateChannels(-1);
     Mix_VolumeMusic(100);
-    music = Mix_LoadMUS("music.mp3");
+    music = Mix_LoadMUS("effects.wav");
     Mix_PlayMusic(music, -1);
 }
 
