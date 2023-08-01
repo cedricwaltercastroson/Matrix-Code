@@ -17,8 +17,8 @@
 #define RAINDROP_COUNT          2048
 #define SpawnFrame              0.05f//0.025f
 #define MoveFrame               0.05f//0.05f
-#define Increment               6 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
-#define IncrementMax            7 //increment - 1
+#define Increment               7 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
+#define IncrementMax            8 //increment - 1
 
 void initialize(void);
 void terminate(int exit_code);
@@ -404,6 +404,8 @@ Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 SDL_Texture* texthead[62] = { NULL };
 SDL_Surface* surfacehead[62] = { NULL };
+SDL_Texture* textneck[62] = { NULL };
+SDL_Surface* surfaceneck[62] = { NULL };
 SDL_Texture* textbody[62] = { NULL };
 SDL_Surface* surfacebody[62] = { NULL };
 SDL_Texture* texttail[62] = { NULL };
@@ -439,7 +441,9 @@ int main(int argc, char* argv[])
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 143, 0 };
+    SDL_Color foregroundneck = { 0, 143, 0 };
+    SDL_Color backgroundneck = { 0, 0, 0 };
+    SDL_Color foregroundbody = { 0, 84, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
     SDL_Color foregroundtail = { 0, 59, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
@@ -471,6 +475,9 @@ int main(int argc, char* argv[])
         {
             surfacehead[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundhead, backgroundhead);
             texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
+
+            surfaceneck[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundneck, backgroundneck);
+            textneck[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceneck[srn]);
 
             surfacebody[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundbody, backgroundbody);
             textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
@@ -524,6 +531,9 @@ int main(int argc, char* argv[])
         {
             SDL_DestroyTexture(texthead[srnclean]);
             SDL_FreeSurface(surfacehead[srnclean]);
+
+            SDL_DestroyTexture(textneck[srnclean]);
+            SDL_FreeSurface(surfaceneck[srnclean]);
 
             SDL_DestroyTexture(textbody[srnclean]);
             SDL_FreeSurface(surfacebody[srnclean]);
@@ -667,7 +677,7 @@ int spawn_rain(int i)
         }
         else if (t == 2)
         {
-            app.srain[i][t].y = app.srain[i][t - 2].y - 60;
+            app.srain[i][t].y = app.srain[i][t - 2].y - 40;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][2].w, &app.srain[i][2].h); //spawn data but display nothing
         }
         else if (t == 3)
@@ -680,11 +690,16 @@ int spawn_rain(int i)
             app.srain[i][t].y = app.srain[i][t - 4].y - 560;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][4].w, &app.srain[i][4].h); //spawn data but display nothing
         }
-
         else if (t == 5)
         {
             app.srain[i][t].y = app.srain[i][t - 5].y - 600;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][5].w, &app.srain[i][5].h); //spawn data but display nothing
+        }
+
+        else if (t == 6)
+        {
+            app.srain[i][t].y = app.srain[i][t - 6].y - 620;
+            SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][6].w, &app.srain[i][6].h); //spawn data but display nothing
         }
     }
 
@@ -694,6 +709,7 @@ int spawn_rain(int i)
 int move_rain(int i)
 {
     int randomhead = rand() % 61;
+    int randomneck = rand() % 61;
     int randombody = rand() % 61;
     int randomtail = rand() % 61;
     int randomfade = rand() % 61;
@@ -705,23 +721,27 @@ int move_rain(int i)
 
     app.srain[i][1].y = app.srain[i][1].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, textbody[randombody], NULL, &app.srain[i][1]); //Start is playing something
+    SDL_RenderCopy(app.renderer, textneck[randomneck], NULL, &app.srain[i][1]); //Start is playing something
 
     app.srain[i][2].y = app.srain[i][2].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][2]); //Start is playing something
+    SDL_RenderCopy(app.renderer, textbody[randombody], NULL, &app.srain[i][2]); //Start is playing something
 
     app.srain[i][3].y = app.srain[i][3].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][3]); //Start is playing something
+    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][3]); //Start is playing something
 
     app.srain[i][4].y = app.srain[i][4].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][4]); //Start is playing something
+    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][4]); //Start is playing something
 
     app.srain[i][5].y = app.srain[i][5].y + app.dy;
 
-    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][5]); //Start is playing something
+    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][5]); //Start is playing something
+
+    app.srain[i][6].y = app.srain[i][6].y + app.dy;
+
+    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][6]); //Start is playing something
 
     return i;
 }
