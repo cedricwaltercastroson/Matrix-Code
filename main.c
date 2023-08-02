@@ -14,11 +14,12 @@
 #define FONT_SIZE               24
 #define RAIN_WIDTH_HEIGHT       20
 #define RAIN_START_Y            0
-#define RAINDROP_COUNT          2048
-#define SpawnFrame              0.025f//0.025f
+#define RAINDROP_COUNT          512
+#define SpawnFrame              0.1f//0.025f
 #define MoveFrame               0.05f//0.05f
 #define Increment               7 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
 #define IncrementMax            8 //increment - 1
+#define RANGE                   96
 
 void initialize(void);
 void terminate(int exit_code);
@@ -439,17 +440,17 @@ int main(int argc, char* argv[])
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
 
-    SDL_Color foregroundhead = { 0, 255, 128 };
+    SDL_Color foregroundhead = { 0, 255, 128 }; //{ 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 0, 143, 0 };
+    SDL_Color foregroundneck = { 0, 143, 65 }; //{ 0, 143, 65 };
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 84, 0 };
+    SDL_Color foregroundbody = { 0, 84, 17 }; //{ 0, 84, 17 };
     SDL_Color backgroundbody = { 0, 0, 0 };
-    SDL_Color foregroundtail = { 0, 59, 0 };
+    SDL_Color foregroundtail = { 0, 64, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
-    SDL_Color foregroundfade = { 0, 47, 0 };
+    SDL_Color foregroundfade = { 0, 32, 0 };
     SDL_Color backgroundfade = { 0, 0, 0 };
-    SDL_Color foregroundtaper = { 0, 25, 0 };
+    SDL_Color foregroundtaper = { 0, 16, 0 };
     SDL_Color backgroundtaper = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
@@ -653,10 +654,63 @@ void handle_input()
     }
 }
 
+// Function to swap two integers
+void swap(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// Function to perform the Fisher-Yates shuffle
+void fisherYatesShuffle(int arr[], int size) {
+    for (int i = size - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        swap(&arr[i], &arr[j]);
+    }
+}
+
+// Function to generate a unique random number between 0 and 95
+int generateUniqueRandomNumber() {
+    static int numbers[RANGE]; // Static array to store generated numbers
+    static int current = 0;
+    static int initialized = 0;
+
+    // Initialize the array with numbers 0 to 95 only once
+    if (!initialized) {
+        for (int i = 0; i < RANGE; i++) {
+            numbers[i] = i;
+        }
+        // Seed the random number generator only once
+        srand((unsigned int)time(NULL));
+        initialized = 1;
+
+        // Perform Fisher-Yates shuffle to randomize the array
+        fisherYatesShuffle(numbers, RANGE);
+    }
+
+    // If all unique numbers have been returned, shuffle the array again
+    if (current >= RANGE) {
+        fisherYatesShuffle(numbers, RANGE);
+        current = 0;
+    }
+
+    // Get the next unique number from the shuffled array
+    int randomNumber = numbers[current];
+    current++;
+
+    return randomNumber;
+}
+
 int spawn_rain(int i)
 {
 //    int RAIN_START_X = rand() % 172; //used for 3440x1440
-    int RAIN_START_X = rand() % 96;
+//    int RAIN_START_X = rand() % 96;
+
+//    int RAIN_START_X = rand() % 96;
+
+    int RAIN_START_X = generateUniqueRandomNumber();
+
+//    int RAIN_START_X = rand() % 96;
     int random = rand() % 61;
 
     app.srain[i][0].x = mn[RAIN_START_X];
