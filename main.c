@@ -5,7 +5,6 @@
 #include <math.h>
 #include <time.h>
 #include <SDL.h>
-#include <SDL_timer.h>
 #include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
@@ -14,392 +13,19 @@
 #define FONT_SIZE               24
 #define RAIN_WIDTH_HEIGHT       20
 #define RAIN_START_Y            0
-#define RAINDROP_COUNT          512
-#define SpawnFrame              0.1f//0.025f
-#define MoveFrame               0.05f//0.05f
-#define Increment               7 //tail effect remember to also modify incrementmax which is n-1 due to the array null terminator
-#define IncrementMax            8 //increment - 1
-#define RANGE                   96
+#define RAINDROP_COUNT          128
+#define Increment               7 //tail effect remember to also modify incrementmax which is n+1 due to the array null terminator
+#define IncrementMax            8 //value of Increment + 1
+#define DEFAULT_FPS             30
 
-void initialize(void);
-void terminate(int exit_code);
-void handle_input(void);
+int RANGE_MAX; // Max value for the RANGE constant, calculated dynamically
+int *mn; // Pointer to hold the mn values dynamically allocated
+int RANGE;
 
-int spawn_rain(int);
-int move_rain(int);
-
-typedef struct {
-    SDL_Renderer* renderer;
-    SDL_Window* window;
-    int running;
-    SDL_Rect srain[RAINDROP_COUNT][IncrementMax];
-    int dx;
-    int dy;
-    int fps;
-} SDL2APP;
-
-// initialize global structure to store app state
-// and SDL renderer for use in all functions
-SDL2APP app = {
-  .running = 1,
-  .srain = {0},
-  .dx = RAIN_WIDTH_HEIGHT,
-  .dy = RAIN_WIDTH_HEIGHT,
-  .fps = 0,
-};
-
-SDL_Rect srain = {
-    .w = 0,
-    .h = 0,
-    .x = 0,
-    .y = 0
-};
-
-SDL_DisplayMode DM = {
-    .w = 0,
-    .h = 0
-};
-
-//magic number table for the x coordinator used in random spawning prevents weird overlaps
-
-const int mn[96] = {
-    0,
-    20,
-    40,
-    60,
-    80,
-    100,
-    120,
-    140,
-    160,
-    180,
-    200,
-    220,
-    240,
-    260,
-    280,
-    300,
-    320,
-    340,
-    360,
-    380,
-    400,
-    420,
-    440,
-    460,
-    480,
-    500,
-    520,
-    540,
-    560,
-    580,
-    600,
-    620,
-    640,
-    660,
-    680,
-    700,
-    720,
-    740,
-    760,
-    780,
-    800,
-    820,
-    840,
-    860,
-    880,
-    900,
-    920,
-    940,
-    960,
-    980,
-    1000,
-    1020,
-    1040,
-    1060,
-    1080,
-    1100,
-    1120,
-    1140,
-    1160,
-    1180,
-    1200,
-    1220,
-    1240,
-    1260,
-    1280,
-    1300,
-    1320,
-    1340,
-    1360,
-    1380,
-    1400,
-    1420,
-    1440,
-    1460,
-    1480,
-    1500,
-    1520,
-    1540,
-    1560,
-    1580,
-    1600,
-    1620,
-    1640,
-    1660,
-    1680,
-    1700,
-    1720,
-    1740,
-    1760,
-    1780,
-    1800,
-    1820,
-    1840,
-    1860,
-    1880,
-    1900
-};
-/*
-const int mn[172] = {
-    0,
-    20,
-    40,
-    60,
-    80,
-    100,
-    120,
-    140,
-    160,
-    180,
-    200,
-    220,
-    240,
-    260,
-    280,
-    300,
-    320,
-    340,
-    360,
-    380,
-    400,
-    420,
-    440,
-    460,
-    480,
-    500,
-    520,
-    540,
-    560,
-    580,
-    600,
-    620,
-    640,
-    660,
-    680,
-    700,
-    720,
-    740,
-    760,
-    780,
-    800,
-    820,
-    840,
-    860,
-    880,
-    900,
-    920,
-    940,
-    960,
-    980,
-    1000,
-    1020,
-    1040,
-    1060,
-    1080,
-    1100,
-    1120,
-    1140,
-    1160,
-    1180,
-    1200,
-    1220,
-    1240,
-    1260,
-    1280,
-    1300,
-    1320,
-    1340,
-    1360,
-    1380,
-    1400,
-    1420,
-    1440,
-    1460,
-    1480,
-    1500,
-    1520,
-    1540,
-    1560,
-    1580,
-    1600,
-    1620,
-    1640,
-    1660,
-    1680,
-    1700,
-    1720,
-    1740,
-    1760,
-    1780,
-    1800,
-    1820,
-    1840,
-    1860,
-    1880,
-    1900,
-    1920,
-    1940,
-    1960,
-    1980,
-    2000,
-    2020,
-    2040,
-    2060,
-    2080,
-    2100,
-    2120,
-    2140,
-    2160,
-    2180,
-    2200,
-    2220,
-    2240,
-    2260,
-    2280,
-    2300,
-    2320,
-    2340,
-    2360,
-    2380,
-    2400,
-    2420,
-    2440,
-    2460,
-    2480,
-    2500,
-    2520,
-    2540,
-    2560,
-    2580,
-    2600,
-    2620,
-    2640,
-    2660,
-    2680,
-    2700,
-    2720,
-    2740,
-    2760,
-    2780,
-    2800,
-    2820,
-    2840,
-    2860,
-    2880,
-    2900,
-    2920,
-    2940,
-    2960,
-    2980,
-    3000,
-    3020,
-    3040,
-    3060,
-    3080,
-    3100,
-    3120,
-    3140,
-    3160,
-    3180,
-    3200,
-    3220,
-    3240,
-    3260,
-    3280,
-    3300,
-    3320,
-    3340,
-    3360,
-    3380,
-    3400,
-    3420,
-};
-*/
-const char* alphabet[62] = {
-    "0", //0
-    "1", //1
-    "2", //2
-    "3", //3
-    "4", //4
-    "5", //5
-    "6", //6
-    "7", //7
-    "8", //8
-    "9", //9
-    "A", //10
-    "B", //11
-    "C", //12
-    "D", //13
-    "E", //14
-    "F", //15
-    "G", //16
-    "H", //17
-    "I", //18
-    "J", //19
-    "K", //20
-    "L", //21
-    "M", //22
-    "N", //23
-    "O", //24
-    "P", //25
-    "Q", //26
-    "R", //27
-    "S", //28
-    "T", //29
-    "U", //30
-    "V", //31
-    "W", //32
-    "X", //33
-    "Y", //34
-    "Z", //35
-    "a", //36
-    "b", //37
-    "c", //38
-    "d", //39
-    "e", //40
-    "f", //41
-    "g", //42
-    "h", //43
-    "i", //44
-    "j", //45
-    "k", //46
-    "l", //47
-    "m", //48
-    "n", //49
-    "o", //50
-    "p", //51
-    "q", //52
-    "r", //53
-    "s", //54
-    "t", //55
-    "u", //56
-    "v", //57
-    "w", //58
-    "x", //59
-    "y", //60
-    "z", //61
-};
+float rain_speed = 1.0f;
+const float max_rain_speed = 3.0f; // Set the maximum rain_speed value
+const float min_rain_speed = 0.1f;  // Set the minimum rain_speed value
+float increment_rain_speed = 0.1f;    // Increment value for rain_speed
 
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
@@ -418,6 +44,53 @@ SDL_Surface* surfacetaper[62] = { NULL };
 SDL_Texture* textempty = NULL;
 SDL_Surface* surfaceempty = NULL;
 
+void initialize(void);
+void terminate(int exit_code);
+int generateUniqueRandomNumber(int range); // Updated function signature
+
+int spawn_rain(int);
+int move_rain(int);
+
+typedef struct {
+    SDL_Renderer* renderer;
+    SDL_Window* window;
+    int running;
+    SDL_Rect srain[RAINDROP_COUNT][IncrementMax];
+    int dx;
+    int dy;
+} SDL2APP;
+
+// initialize global structure to store app state
+// and SDL renderer for use in all functions
+SDL2APP app = {
+  .running = 1,
+  .srain = {0},
+  .dx = RAIN_WIDTH_HEIGHT,
+  .dy = RAIN_WIDTH_HEIGHT,
+};
+
+SDL_Rect srain = {
+    .w = 0,
+    .h = 0,
+    .x = 0,
+    .y = 0
+};
+
+SDL_DisplayMode DM = {
+    .w = 0,
+    .h = 0
+};
+
+const char* alphabet[62] = {
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+    "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d",
+    "e", "f", "g", "h", "i", "j", "k", "l", "m", "n",
+    "o", "p", "q", "r", "s", "t", "u", "v", "w", "x",
+    "y", "z"
+};
+
 int main(int argc, char* argv[])
 {
     // Initialize SDL and the relevant structures
@@ -429,22 +102,15 @@ int main(int argc, char* argv[])
 
     Mix_PlayingMusic();
 
-    float FrameTime1 = 0, FrameTime2 = 0;
-
-    int PreviousTime = 0;
-    int CurrentTime = 0;
-    float DeltaTime = 0;
-
     int i = 0;
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-
-    SDL_Color foregroundhead = { 0, 255, 128 }; //{ 0, 255, 128 };
+    SDL_Color foregroundhead = { 0, 255, 125 }; //{ 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 0, 143, 65 }; //{ 0, 143, 65 };
+    SDL_Color foregroundneck = { 102, 255, 51 }; //{ 0, 143, 65 };
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 84, 17 }; //{ 0, 84, 17 };
+    SDL_Color foregroundbody = { 0, 192, 25 }; //{ 0, 84, 17 };
     SDL_Color backgroundbody = { 0, 0, 0 };
     SDL_Color foregroundtail = { 0, 64, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
@@ -458,16 +124,37 @@ int main(int argc, char* argv[])
     // enter app loop
     while (app.running) {
 
-        PreviousTime = CurrentTime;
-        CurrentTime = SDL_GetTicks();
-        DeltaTime = (CurrentTime - PreviousTime) / 1000.0f;
+        Uint32 start_time = SDL_GetTicks();
+        Uint32 prev_frame_ticks = SDL_GetTicks();
 
-        Uint64 start = SDL_GetPerformanceCounter();
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) {
+                app.running = 0;
+            }
 
-        handle_input();
-
-        FrameTime1 += DeltaTime;
-        FrameTime2 += DeltaTime;
+            // Handle keyboard events to control rain speed and reset to default
+            if (e.type == SDL_KEYDOWN) {
+                switch (e.key.keysym.sym) {
+                case SDLK_UP:
+                    // Increase rain_speed but ensure it doesn't exceed max_rain_speed
+                    if (rain_speed < max_rain_speed) {
+                        rain_speed += increment_rain_speed;
+                    }
+                    break;
+                case SDLK_DOWN:
+                    // Decrease rain_speed but ensure it doesn't go below min_rain_speed
+                    if (rain_speed > min_rain_speed + increment_rain_speed) {
+                        rain_speed -= increment_rain_speed;
+                    }
+                    break;
+                case SDLK_SPACE:
+                    // Reset rain_speed to default value
+                    rain_speed = 1.0;
+                    break;
+                }
+            }
+        }
 
         surfaceempty = TTF_RenderText_LCD(font1, " ", foregroundempty, backgroundempty);
         textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
@@ -493,40 +180,20 @@ int main(int argc, char* argv[])
             texttaper[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetaper[srn]);
         }
 
-        if (FrameTime1 > SpawnFrame)
+        if (i == RAINDROP_COUNT)
         {
-            if (i == RAINDROP_COUNT)
-            {
-                i = 1;
-            }
-
-            spawn_rain(i);
- 
-            i++;
-            FrameTime1 = 0;
+            i = 1;
         }
 
-        if (FrameTime2 >= MoveFrame)
+        spawn_rain(i);
+        i++;
+
+        for (int x = 1; x < RAINDROP_COUNT; ++x)
         {
-            for (int x = 1; x < RAINDROP_COUNT; ++x)
-            {
-                move_rain(x);
-            }
-
-            SDL_RenderPresent(app.renderer);
-
-            Uint64 end = SDL_GetPerformanceCounter();
-
-            float elapsed = (end - start) / (float)SDL_GetPerformanceFrequency();
-
-            app.fps = (int)(1 / elapsed);
-
-            char buffer[64];
-            snprintf(buffer, 64, "Matrix-Code FPS:%d", app.fps);
-            SDL_SetWindowTitle(app.window, buffer);
-
-            FrameTime2 = 0;
+            move_rain(x);
         }
+
+        SDL_RenderPresent(app.renderer);
         
         for (int srnclean = 0; srnclean < 62; srnclean++)
         {
@@ -551,6 +218,25 @@ int main(int argc, char* argv[])
 
         SDL_DestroyTexture(textempty);
         SDL_FreeSurface(surfaceempty);
+
+        Uint32 end_time = SDL_GetTicks();
+        Uint32 frame_time = end_time - start_time;
+
+        // Control the frame rate based on rain_speed
+        Uint32 frame_delay = 1000 / (Uint32)(DEFAULT_FPS * rain_speed);
+
+        // Calculate the time elapsed since the previous frame
+        Uint32 elapsed_ticks = SDL_GetTicks() - prev_frame_ticks;
+        if (elapsed_ticks < frame_delay) {
+            // If the frame has not taken enough time, use busy-wait loop to wait for the remaining time
+            Uint32 remaining_ticks = frame_delay - elapsed_ticks;
+            while (SDL_GetTicks() - prev_frame_ticks < remaining_ticks) {
+                // Busy-wait loop
+            }
+        }
+
+        // Update previous frame's tick value
+        prev_frame_ticks = SDL_GetTicks();
     }
     // make sure program cleans up on exit
     terminate(EXIT_SUCCESS);
@@ -561,19 +247,36 @@ void initialize()
 
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
     {
-
         printf("error: failed to initialize SDL: %s\n", SDL_GetError());
         terminate(EXIT_FAILURE);
-
     }
 
     SDL_GetCurrentDisplayMode(0, &DM);
     int SCREEN_WIDTH = DM.w;
     int SCREEN_HEIGHT = DM.h;
-//    int SCREEN_WIDTH = 640;
-//    int SCREEN_HEIGHT = 480;
 
-    Mix_Init(MIX_INIT_MP3);
+    // Calculate the value of RANGE based on the number of raindrops (RAINDROP_COUNT)
+    RANGE = SCREEN_WIDTH / RAIN_WIDTH_HEIGHT;
+
+    // Calculate the value of RANGE_MAX based on the calculated RANGE
+    RANGE_MAX = RANGE;
+
+    // Dynamically allocate memory for the mn array based on RANGE
+    mn = (int*)malloc(RANGE * sizeof(int));
+    if (mn == NULL) {
+        printf("error: memory allocation failed for mn array.\n");
+        terminate(EXIT_FAILURE);
+    }
+
+    // Fill the mn array with data starting from 0 and incrementing by RAIN_WIDTH_HEIGHT
+    for (int i = 0; i < RANGE; i++) {
+        if (i < RANGE_MAX) {
+            mn[i] = i * RAIN_WIDTH_HEIGHT;
+        }
+        else {
+            mn[i] = 0; // or any suitable default value when RANGE exceeds RANGE_MAX
+        }
+    }
 
     // create the app window
     app.window = SDL_CreateWindow("Matrix-Code",
@@ -581,7 +284,7 @@ void initialize()
         SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
-        SDL_WINDOW_SHOWN //| SDL_WINDOW_MAXIMIZED
+        SDL_WINDOW_SHOWN
     );
 
     SDL_SetWindowFullscreen(app.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -610,11 +313,19 @@ void initialize()
         printf("Error initializing SDL_ttf: %s\n", TTF_GetError());
     }
 
-    Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 4096);
+    Mix_Init(MIX_INIT_MP3);
+    if (Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 4096) < 0) {
+        printf("Error initializing SDL_mixer: %s\n", Mix_GetError());
+    }
     Mix_AllocateChannels(-1);
     Mix_VolumeMusic(100);
     music = Mix_LoadMUS("effects.wav");
-    Mix_PlayMusic(music, -1);
+    if (music == NULL) {
+        printf("Error loading music: %s\n", Mix_GetError());
+    }
+    else {
+        Mix_PlayMusic(music, -1);
+    }
 }
 
 void terminate(int exit_code)
@@ -630,7 +341,12 @@ void terminate(int exit_code)
         SDL_DestroyWindow(app.window);
     }
 
-    Mix_FreeMusic(music);
+    // Free the dynamically allocated memory for mn array
+    free(mn);
+
+    if (music != NULL) {
+        Mix_FreeMusic(music);
+    }
     Mix_CloseAudio();
     Mix_Quit();
 
@@ -639,19 +355,6 @@ void terminate(int exit_code)
 
     SDL_Quit();
     exit(exit_code);
-}
-
-void handle_input()
-{
-    SDL_Event e;
-
-    while (SDL_PollEvent(&e))
-    {
-        if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
-        {
-            app.running = 0;
-        }
-    }
 }
 
 // Function to swap two integers
@@ -669,48 +372,55 @@ void fisherYatesShuffle(int arr[], int size) {
     }
 }
 
-// Function to generate a unique random number between 0 and 95
-int generateUniqueRandomNumber() {
-    static int numbers[RANGE]; // Static array to store generated numbers
+// Function to generate a unique random number between 0 and range - 1
+int generateUniqueRandomNumber(int range) {
+    static int* numbers = NULL;
     static int current = 0;
     static int initialized = 0;
+    static int lastGeneratedNumber = -1;
 
-    // Initialize the array with numbers 0 to 95 only once
+    int randomNumber;
+
+    // Initialize the array with numbers 0 to range - 1 only once
     if (!initialized) {
-        for (int i = 0; i < RANGE; i++) {
+        numbers = (int*)malloc(range * sizeof(int));
+        if (numbers == NULL) {
+            printf("error: memory allocation failed for numbers array.\n");
+            terminate(EXIT_FAILURE);
+        }
+
+        for (int i = 0; i < range; i++) {
             numbers[i] = i;
         }
-        // Seed the random number generator only once
+        // Seed the random number generator only once with unsigned int value
         srand((unsigned int)time(NULL));
         initialized = 1;
 
         // Perform Fisher-Yates shuffle to randomize the array
-        fisherYatesShuffle(numbers, RANGE);
+        fisherYatesShuffle(numbers, range);
     }
 
-    // If all unique numbers have been returned, shuffle the array again
-    if (current >= RANGE) {
-        fisherYatesShuffle(numbers, RANGE);
-        current = 0;
-    }
+    // Ensure the new number is different from the last generated number
+    do {
+        randomNumber = numbers[current];
+        current++;
+        if (current >= range) {
+            current = 0;
+            fisherYatesShuffle(numbers, range);
+        }
+    } while (randomNumber == lastGeneratedNumber);
 
-    // Get the next unique number from the shuffled array
-    int randomNumber = numbers[current];
-    current++;
+    // Update the last generated number
+    lastGeneratedNumber = randomNumber;
 
     return randomNumber;
 }
 
+
 int spawn_rain(int i)
 {
-//    int RAIN_START_X = rand() % 172; //used for 3440x1440
-//    int RAIN_START_X = rand() % 96;
+    int RAIN_START_X = generateUniqueRandomNumber(RANGE_MAX);
 
-//    int RAIN_START_X = rand() % 96;
-
-    int RAIN_START_X = generateUniqueRandomNumber();
-
-//    int RAIN_START_X = rand() % 96;
     int random = rand() % 61;
 
     app.srain[i][0].x = mn[RAIN_START_X];
@@ -736,23 +446,22 @@ int spawn_rain(int i)
         }
         else if (t == 3)
         {
-            app.srain[i][t].y = app.srain[i][t - 3].y - 500;
+            app.srain[i][t].y = app.srain[i][t - 3].y - 60;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][3].w, &app.srain[i][3].h); //spawn data but display nothing
         }
         else if (t == 4)
         {
-            app.srain[i][t].y = app.srain[i][t - 4].y - 560;
+            app.srain[i][t].y = app.srain[i][t - 4].y - 460;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][4].w, &app.srain[i][4].h); //spawn data but display nothing
         }
         else if (t == 5)
         {
-            app.srain[i][t].y = app.srain[i][t - 5].y - 600;
+            app.srain[i][t].y = app.srain[i][t - 5].y - 500;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][5].w, &app.srain[i][5].h); //spawn data but display nothing
         }
-
         else if (t == 6)
         {
-            app.srain[i][t].y = app.srain[i][t - 6].y - 620;
+            app.srain[i][t].y = app.srain[i][t - 6].y - 540;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][6].w, &app.srain[i][6].h); //spawn data but display nothing
         }
     }
@@ -770,32 +479,19 @@ int move_rain(int i)
     int randomtaper = rand() % 61;
 
     app.srain[i][0].y = app.srain[i][0].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, texthead[randomhead], NULL, &app.srain[i][0]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, texthead[randomhead], NULL, &app.srain[i][0]); //is playing something
     app.srain[i][1].y = app.srain[i][1].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, textneck[randomneck], NULL, &app.srain[i][1]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, textneck[randomneck], NULL, &app.srain[i][1]); //is playing something
     app.srain[i][2].y = app.srain[i][2].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, textbody[randombody], NULL, &app.srain[i][2]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, textbody[randombody], NULL, &app.srain[i][2]); //is playing something
     app.srain[i][3].y = app.srain[i][3].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][3]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][3]); //is playing something
     app.srain[i][4].y = app.srain[i][4].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][4]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][4]); //is playing something
     app.srain[i][5].y = app.srain[i][5].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][5]); //Start is playing something
-
+    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][5]); //is playing something
     app.srain[i][6].y = app.srain[i][6].y + app.dy;
-
-    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][6]); //Start is playing something
+    SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][6]); //is playing something
 
     return i;
 }
