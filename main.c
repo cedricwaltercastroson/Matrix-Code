@@ -46,7 +46,7 @@ SDL_Surface* surfaceempty = NULL;
 
 void initialize(void);
 void terminate(int exit_code);
-int generateUniqueRandomNumber(int range); // Updated function signature
+int generateUniqueRandomNumber(int range);
 
 int spawn_rain(int);
 int move_rain(int);
