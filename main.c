@@ -132,11 +132,11 @@ int main(int argc, char* argv[])
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 51, 255, 204 }; //{ 0, 255, 128 };
+    SDL_Color foregroundhead = { 51, 255, 204 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 50, 205, 50 }; //{ 0, 143, 65 };
+    SDL_Color foregroundneck = { 50, 205, 50 };
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 204, 0 }; //{ 0, 84, 17 };
+    SDL_Color foregroundbody = { 0, 128, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
     SDL_Color foregroundtailbody = { 0, 64, 0 };
     SDL_Color backgroundtailbody = { 0, 0, 0 };
@@ -424,7 +424,6 @@ int generateUniqueRandomNumber(int range) {
     return randomNumber;
 }
 
-/*
 int spawn_rain(int i)
 {
     int RAIN_START_X = generateUniqueRandomNumber(RANGE_MAX);
@@ -444,48 +443,50 @@ int spawn_rain(int i)
     return i;
 }
 
-
 int move_rain(int i)
 {
-    int randomValues[] = { rand() % 61, rand() % 61, rand() % 61, rand() % 61, rand() % 61, rand() % 61, 0 };
+    int randomValues[6];
+    for (int j = 0; j < 6; j++)
+        randomValues[j] = rand() % 61;
 
-    for (int j = 0; j < 7; j++) {
-        app.srain[i][j].y += app.dy;
-        SDL_Texture* texture;
+    for (int t = 0; t < 7; t++)
+    {
+        app.srain[i][t].y += app.dy;
+        SDL_Texture* texture = NULL;
 
-        switch (j) {
+        switch (t)
+        {
         case 0:
-            texture = texthead[randomValues[j]];
+            texture = texthead[randomValues[0]];
             break;
         case 1:
-            texture = textneck[randomValues[j]];
+            texture = textneck[randomValues[1]];
             break;
         case 2:
-            texture = textbody[randomValues[j]];
+            texture = textbody[randomValues[2]];
             break;
         case 3:
-            texture = texttailbody[randomValues[j]];
+            texture = texttailbody[randomValues[3]];
             break;
         case 4:
-            texture = texttailcone[randomValues[j]];
+            texture = texttailcone[randomValues[4]];
             break;
         case 5:
-            texture = texttailtip[randomValues[j]];
+            texture = texttailtip[randomValues[5]];
             break;
-        default:
+        case 6:
             texture = textempty;
             break;
         }
 
-        SDL_RenderCopy(app.renderer, texture, NULL, &app.srain[i][j]);
+        SDL_RenderCopy(app.renderer, texture, NULL, &app.srain[i][t]);
     }
 
     return i;
 }
-*/
 
 //Legacy code:
-
+/*
 int spawn_rain(int i)
 {
     int RAIN_START_X = generateUniqueRandomNumber(RANGE_MAX);
@@ -564,3 +565,4 @@ int move_rain(int i)
 
     return i;
 }
+*/
