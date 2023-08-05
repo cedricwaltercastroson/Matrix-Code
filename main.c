@@ -14,7 +14,7 @@
 #define RAIN_WIDTH_HEIGHT       20
 #define RAIN_START_Y            0
 #define RAINDROP_COUNT          128
-#define Increment               7 //tail effect remember to also modify incrementmax which is n+1 due to the array null terminator
+#define Increment               7 //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
 #define IncrementMax            8 //value of Increment + 1
 #define DEFAULT_FPS             30
 
@@ -35,12 +35,12 @@ SDL_Texture* textneck[62] = { NULL };
 SDL_Surface* surfaceneck[62] = { NULL };
 SDL_Texture* textbody[62] = { NULL };
 SDL_Surface* surfacebody[62] = { NULL };
-SDL_Texture* texttail[62] = { NULL };
-SDL_Surface* surfacetail[62] = { NULL };
-SDL_Texture* textfade[62] = { NULL };
-SDL_Surface* surfacefade[62] = { NULL };
-SDL_Texture* texttaper[62] = { NULL };
-SDL_Surface* surfacetaper[62] = { NULL };
+SDL_Texture* texttailbody[62] = { NULL };
+SDL_Surface* surfacetailbody[62] = { NULL };
+SDL_Texture* texttailcone[62] = { NULL };
+SDL_Surface* surfacetailcone[62] = { NULL };
+SDL_Texture* texttailtip[62] = { NULL };
+SDL_Surface* surfacetailtip[62] = { NULL };
 SDL_Texture* textempty = NULL;
 SDL_Surface* surfaceempty = NULL;
 
@@ -91,6 +91,32 @@ const char* alphabet[62] = {
     "y", "z"
 };
 
+// Function to free textures and surfaces
+void freeTexturesAndSurfaces() {
+    for (int srnclean = 0; srnclean < 62; srnclean++) {
+        SDL_DestroyTexture(texthead[srnclean]);
+        SDL_FreeSurface(surfacehead[srnclean]);
+
+        SDL_DestroyTexture(textneck[srnclean]);
+        SDL_FreeSurface(surfaceneck[srnclean]);
+
+        SDL_DestroyTexture(textbody[srnclean]);
+        SDL_FreeSurface(surfacebody[srnclean]);
+
+        SDL_DestroyTexture(texttailbody[srnclean]);
+        SDL_FreeSurface(surfacetailbody[srnclean]);
+
+        SDL_DestroyTexture(texttailcone[srnclean]);
+        SDL_FreeSurface(surfacetailcone[srnclean]);
+
+        SDL_DestroyTexture(texttailtip[srnclean]);
+        SDL_FreeSurface(surfacetailtip[srnclean]);
+    }
+
+    SDL_DestroyTexture(textempty);
+    SDL_FreeSurface(surfaceempty);
+}
+
 int main(int argc, char* argv[])
 {
     // Initialize SDL and the relevant structures
@@ -106,18 +132,18 @@ int main(int argc, char* argv[])
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 0, 255, 125 }; //{ 0, 255, 128 };
+    SDL_Color foregroundhead = { 51, 255, 204 }; //{ 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 102, 255, 51 }; //{ 0, 143, 65 };
+    SDL_Color foregroundneck = { 50, 205, 50 }; //{ 0, 143, 65 };
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 192, 25 }; //{ 0, 84, 17 };
+    SDL_Color foregroundbody = { 0, 204, 0 }; //{ 0, 84, 17 };
     SDL_Color backgroundbody = { 0, 0, 0 };
-    SDL_Color foregroundtail = { 0, 64, 0 };
-    SDL_Color backgroundtail = { 0, 0, 0 };
-    SDL_Color foregroundfade = { 0, 32, 0 };
-    SDL_Color backgroundfade = { 0, 0, 0 };
-    SDL_Color foregroundtaper = { 0, 16, 0 };
-    SDL_Color backgroundtaper = { 0, 0, 0 };
+    SDL_Color foregroundtailbody = { 0, 64, 0 };
+    SDL_Color backgroundtailbody = { 0, 0, 0 };
+    SDL_Color foregroundtailcone = { 0, 32, 0 };
+    SDL_Color backgroundtailcone = { 0, 0, 0 };
+    SDL_Color foregroundtailtip = { 0, 16, 0 };
+    SDL_Color backgroundtailtip = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
 
@@ -170,14 +196,14 @@ int main(int argc, char* argv[])
             surfacebody[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundbody, backgroundbody);
             textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
 
-            surfacetail[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtail, backgroundtail);
-            texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
+            surfacetailbody[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtailbody, backgroundtailbody);
+            texttailbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetailbody[srn]);
 
-            surfacefade[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundfade, backgroundfade);
-            textfade[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacefade[srn]);
+            surfacetailcone[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtailcone, backgroundtailcone);
+            texttailcone[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetailcone[srn]);
 
-            surfacetaper[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtaper, backgroundtaper);
-            texttaper[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetaper[srn]);
+            surfacetailtip[srn] = TTF_RenderText_LCD(font1, alphabet[srn], foregroundtailtip, backgroundtailtip);
+            texttailtip[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetailtip[srn]);
         }
 
         if (i == RAINDROP_COUNT)
@@ -195,29 +221,8 @@ int main(int argc, char* argv[])
 
         SDL_RenderPresent(app.renderer);
         
-        for (int srnclean = 0; srnclean < 62; srnclean++)
-        {
-            SDL_DestroyTexture(texthead[srnclean]);
-            SDL_FreeSurface(surfacehead[srnclean]);
-
-            SDL_DestroyTexture(textneck[srnclean]);
-            SDL_FreeSurface(surfaceneck[srnclean]);
-
-            SDL_DestroyTexture(textbody[srnclean]);
-            SDL_FreeSurface(surfacebody[srnclean]);
-
-            SDL_DestroyTexture(texttail[srnclean]);
-            SDL_FreeSurface(surfacetail[srnclean]);
-
-            SDL_DestroyTexture(textfade[srnclean]);
-            SDL_FreeSurface(surfacefade[srnclean]);
-
-            SDL_DestroyTexture(texttaper[srnclean]);
-            SDL_FreeSurface(surfacetaper[srnclean]);
-        }
-
-        SDL_DestroyTexture(textempty);
-        SDL_FreeSurface(surfaceempty);
+        // Free textures and surfaces after rendering and before the next frame
+        freeTexturesAndSurfaces();
 
         Uint32 end_time = SDL_GetTicks();
         Uint32 frame_time = end_time - start_time;
@@ -238,6 +243,9 @@ int main(int argc, char* argv[])
         // Update previous frame's tick value
         prev_frame_ticks = SDL_GetTicks();
     }
+    // Free textures and surfaces before terminating
+//    freeTexturesAndSurfaces();
+
     // make sure program cleans up on exit
     terminate(EXIT_SUCCESS);
 }
@@ -416,6 +424,67 @@ int generateUniqueRandomNumber(int range) {
     return randomNumber;
 }
 
+/*
+int spawn_rain(int i)
+{
+    int RAIN_START_X = generateUniqueRandomNumber(RANGE_MAX);
+
+    int random = rand() % 61;
+
+    app.srain[i][0].x = mn[RAIN_START_X];
+    app.srain[i][0].y = RAIN_START_Y;
+
+    for (int t = 0; t < Increment; t++)
+    {
+        app.srain[i][t].x = app.srain[i][0].x;
+        app.srain[i][t].y = app.srain[i][t ? t - 1 : 0].y - (t < 4 ? 20 * t : (t == 4 ? 400 : (t == 5 ? 440 : 500)));
+        SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][t].w, &app.srain[i][t].h); //spawn data but display nothing
+    }
+
+    return i;
+}
+
+
+int move_rain(int i)
+{
+    int randomValues[] = { rand() % 61, rand() % 61, rand() % 61, rand() % 61, rand() % 61, rand() % 61, 0 };
+
+    for (int j = 0; j < 7; j++) {
+        app.srain[i][j].y += app.dy;
+        SDL_Texture* texture;
+
+        switch (j) {
+        case 0:
+            texture = texthead[randomValues[j]];
+            break;
+        case 1:
+            texture = textneck[randomValues[j]];
+            break;
+        case 2:
+            texture = textbody[randomValues[j]];
+            break;
+        case 3:
+            texture = texttailbody[randomValues[j]];
+            break;
+        case 4:
+            texture = texttailcone[randomValues[j]];
+            break;
+        case 5:
+            texture = texttailtip[randomValues[j]];
+            break;
+        default:
+            texture = textempty;
+            break;
+        }
+
+        SDL_RenderCopy(app.renderer, texture, NULL, &app.srain[i][j]);
+    }
+
+    return i;
+}
+*/
+
+//Legacy code:
 
 int spawn_rain(int i)
 {
@@ -451,17 +520,17 @@ int spawn_rain(int i)
         }
         else if (t == 4)
         {
-            app.srain[i][t].y = app.srain[i][t - 4].y - 460;
+            app.srain[i][t].y = app.srain[i][t - 4].y - 400;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][4].w, &app.srain[i][4].h); //spawn data but display nothing
         }
         else if (t == 5)
         {
-            app.srain[i][t].y = app.srain[i][t - 5].y - 500;
+            app.srain[i][t].y = app.srain[i][t - 5].y - 440;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][5].w, &app.srain[i][5].h); //spawn data but display nothing
         }
         else if (t == 6)
         {
-            app.srain[i][t].y = app.srain[i][t - 6].y - 540;
+            app.srain[i][t].y = app.srain[i][t - 6].y - 500;
             SDL_QueryTexture(textempty, NULL, NULL, &app.srain[i][6].w, &app.srain[i][6].h); //spawn data but display nothing
         }
     }
@@ -474,9 +543,9 @@ int move_rain(int i)
     int randomhead = rand() % 61;
     int randomneck = rand() % 61;
     int randombody = rand() % 61;
-    int randomtail = rand() % 61;
-    int randomfade = rand() % 61;
-    int randomtaper = rand() % 61;
+    int randomtailbody = rand() % 61;
+    int randomtailcone = rand() % 61;
+    int randomtailtip = rand() % 61;
 
     app.srain[i][0].y = app.srain[i][0].y + app.dy;
     SDL_RenderCopy(app.renderer, texthead[randomhead], NULL, &app.srain[i][0]); //is playing something
@@ -485,11 +554,11 @@ int move_rain(int i)
     app.srain[i][2].y = app.srain[i][2].y + app.dy;
     SDL_RenderCopy(app.renderer, textbody[randombody], NULL, &app.srain[i][2]); //is playing something
     app.srain[i][3].y = app.srain[i][3].y + app.dy;
-    SDL_RenderCopy(app.renderer, texttail[randomtail], NULL, &app.srain[i][3]); //is playing something
+    SDL_RenderCopy(app.renderer, texttailbody[randomtailbody], NULL, &app.srain[i][3]); //is playing something
     app.srain[i][4].y = app.srain[i][4].y + app.dy;
-    SDL_RenderCopy(app.renderer, textfade[randomfade], NULL, &app.srain[i][4]); //is playing something
+    SDL_RenderCopy(app.renderer, texttailcone[randomtailcone], NULL, &app.srain[i][4]); //is playing something
     app.srain[i][5].y = app.srain[i][5].y + app.dy;
-    SDL_RenderCopy(app.renderer, texttaper[randomtaper], NULL, &app.srain[i][5]); //is playing something
+    SDL_RenderCopy(app.renderer, texttailtip[randomtailtip], NULL, &app.srain[i][5]); //is playing something
     app.srain[i][6].y = app.srain[i][6].y + app.dy;
     SDL_RenderCopy(app.renderer, textempty, NULL, &app.srain[i][6]); //is playing something
 
