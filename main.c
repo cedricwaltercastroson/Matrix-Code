@@ -18,9 +18,6 @@
 #define DEFAULT_FPS             30
 #define ALPHABET_SIZE           62
 
-int* history = NULL; // Pointer to store the history of generated numbers
-int historySize = 0; // Initialize the size of history to 0
-
 int sizeToFill; // Dynamic array for mn
 int RANGE_MAX; // Max value for the RANGE constant, calculated dynamically
 int* mn; // Pointer to hold the mn value dynamically allocated
@@ -149,9 +146,6 @@ int generateUniqueRandomNumber(int range) {
 void cleanupMemory() {
     // Free the dynamically allocated memory for mn array
     free(mn);
-
-    // Free the dynamically allocated memory for history array
-    free(history);
 
     // Free memory for srain array and its subarrays
     for (int i = 0; i < RANGE; i++) {
@@ -299,7 +293,7 @@ void initialize()
     // Calculate the value of RANGE_MAX based on the calculated RANGE
     RANGE_MAX = RANGE;
 
-    // Clear and allocate memory for mn and history arrays
+    // Clear and allocate memory for mn arrays
     mn = (int*)calloc(RANGE, sizeof(int));
     if (mn == NULL) {
         printf("error: memory allocation failed for mn array.\n");
