@@ -16,6 +16,7 @@
 #define Increment               4   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
 #define IncrementMax            5   //value of Increment + 1 aka null terminator
 #define DEFAULT_FPS             30
+#define ALPHABET_SIZE           62
 
 int* history = NULL; // Pointer to store the history of generated numbers
 int historySize = 0; // Initialize the size of history to 0
@@ -32,12 +33,12 @@ float increment_rain_speed = 0.1f;    // Increment value for rain_speed
 
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
-SDL_Texture* texthead[62] = { NULL };
-SDL_Surface* surfacehead[62] = { NULL };
-SDL_Texture* textbody[62] = { NULL };
-SDL_Surface* surfacebody[62] = { NULL };
-SDL_Texture* texttail[62] = { NULL };
-SDL_Surface* surfacetail[62] = { NULL };
+SDL_Texture* texthead[ALPHABET_SIZE] = { NULL };
+SDL_Surface* surfacehead[ALPHABET_SIZE] = { NULL };
+SDL_Texture* textbody[ALPHABET_SIZE] = { NULL };
+SDL_Surface* surfacebody[ALPHABET_SIZE] = { NULL };
+SDL_Texture* texttail[ALPHABET_SIZE] = { NULL };
+SDL_Surface* surfacetail[ALPHABET_SIZE] = { NULL };
 SDL_Texture* textempty = NULL;
 SDL_Surface* surfaceempty = NULL;
 
@@ -64,19 +65,23 @@ SDL2APP app = {
   .dy = RAIN_WIDTH_HEIGHT,
 };
 
-SDL_Rect srain = {
+// Rename the static SDL_Rect structure to avoid conflicts
+SDL_Rect initial_srain = {
     .w = 0,
     .h = 0,
     .x = 0,
     .y = 0
 };
 
+// Declare a pointer to an array of pointers to SDL_Rect for dynamic allocation
+SDL_Rect** srain = NULL;
+
 SDL_DisplayMode DM = {
     .w = 0,
     .h = 0
 };
 
-const char* alphabet[62] = {
+const char* alphabet[ALPHABET_SIZE] = {
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
     "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
@@ -88,7 +93,7 @@ const char* alphabet[62] = {
 
 // Function to free textures and surfaces
 void freeTexturesAndSurfaces() {
-    for (int srnclean = 0; srnclean < 62; srnclean++) {
+    for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
         SDL_DestroyTexture(texthead[srnclean]);
         SDL_FreeSurface(surfacehead[srnclean]);
 
@@ -103,48 +108,59 @@ void freeTexturesAndSurfaces() {
     SDL_FreeSurface(surfaceempty);
 }
 
-void initializeHistory(int size) {
-    historySize = size;
-    history = (int*)malloc(historySize * sizeof(int));
-    if (history == NULL) {
-        // Handle memory allocation failure
-        exit(EXIT_FAILURE);
-    }
-}
-
 int generateUniqueRandomNumber(int range) {
-    int randomNumber;
-    bool isUnique = false;
+    static int* uniqueNumbers = NULL;
+    static int currentIndex = 0;
 
-    // Keep generating random numbers until a unique one is found
-    while (!isUnique) {
-        // Generate a random number between 0 and range
-        randomNumber = rand() % range;
-
-        // Check if the generated number is not in the history
-        bool foundInHistory = false;
-        for (int i = 0; i < historySize; i++) {
-            if (history[i] == randomNumber) {
-                foundInHistory = true;
-                break;
-            }
+    // Initialize the uniqueNumbers array on the first call
+    if (uniqueNumbers == NULL) {
+        uniqueNumbers = (int*)malloc(range * sizeof(int));
+        if (uniqueNumbers == NULL) {
+            printf("error: memory allocation failed for uniqueNumbers array.\n");
+            terminate(EXIT_FAILURE);
         }
 
-        // If not found in history, it's unique
-        if (!foundInHistory) {
-            isUnique = true;
+        // Fill the array with values from 0 to range - 1
+        for (int i = 0; i < range; i++) {
+            uniqueNumbers[i] = i;
+        }
+
+        // Shuffle the array to add unpredictability
+        for (int i = 0; i < range - 1; i++) {
+            int j = i + rand() % (range - i);
+            int temp = uniqueNumbers[i];
+            uniqueNumbers[i] = uniqueNumbers[j];
+            uniqueNumbers[j] = temp;
         }
     }
 
-    // Shift the existing history to make room for the new number
-    for (int i = historySize - 1; i > 0; i--) {
-        history[i] = history[i - 1];
+    // Ensure currentIndex is within bounds
+    if (currentIndex >= range) {
+        currentIndex = 0;
     }
 
-    // Update the history with the new number
-    history[0] = randomNumber;
+    // Get the next unique number from the shuffled array
+    int randomNumber = uniqueNumbers[currentIndex++];
 
     return randomNumber;
+}
+
+// Function to free dynamically allocated memory
+void cleanupMemory() {
+    // Free the dynamically allocated memory for mn array
+    free(mn);
+
+    // Free the dynamically allocated memory for history array
+    free(history);
+
+    // Free memory for srain array and its subarrays
+    for (int i = 0; i < RANGE; i++) {
+        free(srain[i]);
+    }
+    free(srain);
+
+    // Free textures and surfaces
+    freeTexturesAndSurfaces();
 }
 
 int main(int argc, char* argv[])
@@ -152,15 +168,11 @@ int main(int argc, char* argv[])
     // Initialize SDL and the relevant structures
     initialize();
 
-    // Calculate the size for history based on the value of mn
-    int mnSize = RANGE-1; // You can adjust this as needed
-    initializeHistory(mnSize);
-
     Mix_PlayingMusic();
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 0, 255, 85 };
+    SDL_Color foregroundhead = { 72, 191, 145 };
     SDL_Color backgroundhead = { 0, 0, 0 };
     SDL_Color foregroundbody2 = { 0, 85, 0 };
     SDL_Color backgroundbody2 = { 0, 0, 0 };
@@ -169,10 +181,30 @@ int main(int argc, char* argv[])
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
 
-    // Allocate memory for srain based on the size of mn
-    SDL_Rect** srain = (SDL_Rect**)malloc(RANGE * sizeof(SDL_Rect*));
+    // Clear and allocate memory for srain based on the size of mn
+    srain = (SDL_Rect**)calloc(RANGE, sizeof(SDL_Rect*));
+    if (srain == NULL) {
+        printf("error: memory allocation failed for srain array.\n");
+        terminate(EXIT_FAILURE);
+    }
     for (int i = 0; i < RANGE; i++) {
-        srain[i] = (SDL_Rect*)malloc(IncrementMax * sizeof(SDL_Rect));
+        srain[i] = (SDL_Rect*)calloc(IncrementMax, sizeof(SDL_Rect));
+        if (srain[i] == NULL) {
+            printf("error: memory allocation failed for srain subarray %d.\n", i);
+            terminate(EXIT_FAILURE);
+        }
+    }
+
+    for (int srn = 0; srn < ALPHABET_SIZE; srn++) //src stands for some random number range from 0 to 62
+    {
+        surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
+        texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
+
+        surfacebody[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody2, backgroundbody2);
+        textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
+
+        surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody3, backgroundbody3);
+        texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
     }
 
     // enter app loop
@@ -213,19 +245,6 @@ int main(int argc, char* argv[])
         surfaceempty = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
         textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
 
-
-        for (int srn = 0; srn < 62; srn++) //src stands for some random number range from 0 to 62
-        {
-            surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
-            texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
-
-            surfacebody[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody2, backgroundbody2);
-            textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
-
-            surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody3, backgroundbody3);
-            texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
-        }
-
         if (RANGE != 0 && DM.w > 0) {
             spawn_rain(srain, generateUniqueRandomNumber(RANGE));
         
@@ -236,9 +255,6 @@ int main(int argc, char* argv[])
         }
 
         SDL_RenderPresent(app.renderer);
-
-        // Free textures and surfaces after rendering and before the next frame
-        freeTexturesAndSurfaces();
 
         Uint32 end_time = SDL_GetTicks();
         Uint32 frame_time = end_time - start_time;
@@ -259,8 +275,6 @@ int main(int argc, char* argv[])
         // Update previous frame's tick value
         prev_frame_ticks = SDL_GetTicks();
     }
-    // Free textures and surfaces before terminating 
-//    freeTexturesAndSurfaces();
 
     // make sure program cleans up on exit
     terminate(EXIT_SUCCESS);
@@ -285,8 +299,8 @@ void initialize()
     // Calculate the value of RANGE_MAX based on the calculated RANGE
     RANGE_MAX = RANGE;
 
-    // Dynamically allocate memory for the mn array based on RANGE
-    mn = (int*)malloc(RANGE * sizeof(int));
+    // Clear and allocate memory for mn and history arrays
+    mn = (int*)calloc(RANGE, sizeof(int));
     if (mn == NULL) {
         printf("error: memory allocation failed for mn array.\n");
         terminate(EXIT_FAILURE);
@@ -357,11 +371,7 @@ void terminate(int exit_code)
         SDL_DestroyWindow(app.window);
     }
 
-    // Free the dynamically allocated memory for mn array
-    free(mn);
-
-    // Free the dynamically allocated memory for history array
-    free(history);
+    cleanupMemory();
 
     if (music != NULL) {
         Mix_FreeMusic(music);
