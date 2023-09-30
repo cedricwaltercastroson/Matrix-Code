@@ -156,15 +156,11 @@ int main(int argc, char* argv[])
     int mnSize = RANGE-1; // You can adjust this as needed
     initializeHistory(mnSize);
 
-    // clear the screen with all black before drawing anything 
-    SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
-    SDL_RenderClear(app.renderer);
-
     Mix_PlayingMusic();
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 72, 191, 145 };
+    SDL_Color foregroundhead = { 0, 255, 85 };
     SDL_Color backgroundhead = { 0, 0, 0 };
     SDL_Color foregroundbody2 = { 0, 85, 0 };
     SDL_Color backgroundbody2 = { 0, 0, 0 };
@@ -178,10 +174,6 @@ int main(int argc, char* argv[])
     for (int i = 0; i < RANGE; i++) {
         srain[i] = (SDL_Rect*)malloc(IncrementMax * sizeof(SDL_Rect));
     }
-
-    // clear the screen with all black before drawing anything 
-    SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
-    SDL_RenderClear(app.renderer);
 
     // enter app loop
     while (app.running) {
@@ -234,7 +226,7 @@ int main(int argc, char* argv[])
             texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
         }
 
-        if (RANGE != 0) {
+        if (RANGE != 0 && DM.w > 0) {
             spawn_rain(srain, generateUniqueRandomNumber(RANGE));
         
             for (int x = 0; x < RANGE; ++x)
@@ -320,10 +312,8 @@ void initialize()
 
     if (!app.window)
     {
-
         printf("error: failed to open %d x %d window: %s\n", SCREEN_WIDTH, SCREEN_HEIGHT, SDL_GetError());
         terminate(EXIT_FAILURE);
-
     }
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
@@ -331,15 +321,9 @@ void initialize()
 
     if (!app.renderer)
     {
-
         printf("error: failed to create renderer: %s\n", SDL_GetError());
         terminate(EXIT_FAILURE);
-
     }
-
-    // clear the screen with all black before drawing anything 
-    SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
-    SDL_RenderClear(app.renderer);
 
     if (TTF_Init() < 0) {
         printf("Error initializing SDL_ttf: %s\n", TTF_GetError());
@@ -376,7 +360,7 @@ void terminate(int exit_code)
     // Free the dynamically allocated memory for mn array
     free(mn);
 
-    // Free the dynamically allocated memory for the history array
+    // Free the dynamically allocated memory for history array
     free(history);
 
     if (music != NULL) {
