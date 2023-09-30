@@ -12,6 +12,7 @@
 #define EXIT_FAILURE            1
 #define FONT_SIZE               24
 #define RAIN_WIDTH_HEIGHT       20
+#define SPACING                 12  //12 is okay, 20 is an option
 #define RAIN_START_Y            0
 #define Increment               4   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
 #define IncrementMax            5   //value of Increment + 1 aka null terminator
@@ -166,7 +167,7 @@ int main(int argc, char* argv[])
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 72, 191, 145 };
+    SDL_Color foregroundhead = { 0, 255, 85 };
     SDL_Color backgroundhead = { 0, 0, 0 };
     SDL_Color foregroundbody2 = { 0, 85, 0 };
     SDL_Color backgroundbody2 = { 0, 0, 0 };
@@ -288,7 +289,7 @@ void initialize()
     int SCREEN_HEIGHT = DM.h;
 
     // Calculate the value of RANGE
-    RANGE = SCREEN_WIDTH / RAIN_WIDTH_HEIGHT;
+    RANGE = SCREEN_WIDTH / SPACING;
 
     // Calculate the value of RANGE_MAX based on the calculated RANGE
     RANGE_MAX = RANGE;
@@ -300,10 +301,10 @@ void initialize()
         terminate(EXIT_FAILURE);
     }
 
-    // Fill the mn array with data starting from 0 and incrementing by RAIN_WIDTH_HEIGHT
+    // Fill the mn array with data starting from 0 and incrementing by SPACING
     sizeToFill = RANGE < RANGE_MAX ? RANGE : RANGE_MAX;
     for (int i = 0; i < sizeToFill; i++) {
-        mn[i] = i * RAIN_WIDTH_HEIGHT;
+        mn[i] = i * SPACING;
     }
 
     // create the app window
