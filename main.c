@@ -167,9 +167,9 @@ int main(int argc, char* argv[])
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
-    SDL_Color foregroundhead = { 0, 255, 85 };
+    SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundbody2 = { 0, 85, 0 };
+    SDL_Color foregroundbody2 = { 0, 128, 0 };
     SDL_Color backgroundbody2 = { 0, 0, 0 };
     SDL_Color foregroundbody3 = { 0, 42, 0 };
     SDL_Color backgroundbody3 = { 0, 0, 0 };
@@ -201,6 +201,9 @@ int main(int argc, char* argv[])
         surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody3, backgroundbody3);
         texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
     }
+
+    surfaceempty = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
+    textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
 
     // enter app loop
     while (app.running) {
@@ -236,9 +239,6 @@ int main(int argc, char* argv[])
                 }
             }
         }
-
-        surfaceempty = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
-        textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
 
         if (RANGE != 0 && DM.w > 0) {
             spawn_rain(srain, generateUniqueRandomNumber(RANGE));
@@ -401,12 +401,12 @@ int spawn_rain(SDL_Rect** srain, int i)
         }
         else if (t == 2)
         {
-            srain[i][t].y = srain[i][t - 2].y - 260;
+            srain[i][t].y = srain[i][t - 2].y - 80;
             SDL_QueryTexture(textempty, NULL, NULL, &srain[i][2].w, &srain[i][2].h); //spawn data but display nothing
         }
         else if (t == 3)
         {
-            srain[i][t].y = srain[i][t - 3].y - (DM.h / 2);
+            srain[i][t].y = srain[i][t - 3].y - (DM.h/2);
             SDL_QueryTexture(textempty, NULL, NULL, &srain[i][3].w, &srain[i][3].h); //spawn data but display nothing
         }
     }
