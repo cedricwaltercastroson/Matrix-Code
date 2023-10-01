@@ -14,8 +14,8 @@
 #define RAIN_WIDTH_HEIGHT       20
 #define SPACING                 12  //12 is okay, 20 is an option
 #define RAIN_START_Y            0
-#define Increment               4   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
-#define IncrementMax            5   //value of Increment + 1 aka null terminator
+#define Increment               5   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
+#define IncrementMax            6   //value of Increment + 1 aka null terminator
 #define DEFAULT_FPS             30
 #define ALPHABET_SIZE           62
 
@@ -33,6 +33,8 @@ Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 SDL_Texture* texthead[ALPHABET_SIZE] = { NULL };
 SDL_Surface* surfacehead[ALPHABET_SIZE] = { NULL };
+SDL_Texture* textneck[ALPHABET_SIZE] = { NULL };
+SDL_Surface* surfaceneck[ALPHABET_SIZE] = { NULL };
 SDL_Texture* textbody[ALPHABET_SIZE] = { NULL };
 SDL_Surface* surfacebody[ALPHABET_SIZE] = { NULL };
 SDL_Texture* texttail[ALPHABET_SIZE] = { NULL };
@@ -94,6 +96,9 @@ void freeTexturesAndSurfaces() {
     for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
         SDL_DestroyTexture(texthead[srnclean]);
         SDL_FreeSurface(surfacehead[srnclean]);
+
+        SDL_DestroyTexture(textneck[srnclean]);
+        SDL_FreeSurface(surfaceneck[srnclean]);
 
         SDL_DestroyTexture(textbody[srnclean]);
         SDL_FreeSurface(surfacebody[srnclean]);
@@ -169,10 +174,12 @@ int main(int argc, char* argv[])
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundbody2 = { 0, 128, 0 };
-    SDL_Color backgroundbody2 = { 0, 0, 0 };
-    SDL_Color foregroundbody3 = { 0, 42, 0 };
-    SDL_Color backgroundbody3 = { 0, 0, 0 };
+    SDL_Color foregroundneck = { 0, 143, 17 };
+    SDL_Color backgroundneck = { 0, 0, 0 };
+    SDL_Color foregroundbody = { 0, 85, 0 };
+    SDL_Color backgroundbody = { 0, 0, 0 };
+    SDL_Color foregroundtail = { 0, 59, 0 };
+    SDL_Color backgroundtail = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
 
@@ -195,10 +202,13 @@ int main(int argc, char* argv[])
         surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
         texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
 
-        surfacebody[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody2, backgroundbody2);
+        surfaceneck[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundneck, backgroundneck);
+        textneck[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceneck[srn]);
+
+        surfacebody[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody, backgroundbody);
         textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
 
-        surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody3, backgroundbody3);
+        surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundtail, backgroundtail);
         texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
     }
 
@@ -406,8 +416,13 @@ int spawn_rain(SDL_Rect** srain, int i)
         }
         else if (t == 3)
         {
-            srain[i][t].y = srain[i][t - 3].y - (DM.h/2);
+            srain[i][t].y = srain[i][t - 3].y - ((DM.h / 2) - 100);
             SDL_QueryTexture(textempty, NULL, NULL, &srain[i][3].w, &srain[i][3].h); //spawn data but display nothing
+        }
+        else if (t == 4)
+        {
+            srain[i][t].y = srain[i][t - 4].y - (DM.h / 2);
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][4].w, &srain[i][4].h); //spawn data but display nothing
         }
     }
 
@@ -421,15 +436,24 @@ int move_rain(SDL_Rect** srain, int i)
         randomValues[n] = rand() % 61;
     }
 
-    srain[i][0].y = srain[i][0].y + app.dy;
-    SDL_RenderCopy(app.renderer, texthead[randomValues[0]], NULL, &srain[i][0]); //is playing something
-
-    for (int n = 1; n < Increment; ++n) {
+    for (int n = 0; n < Increment; ++n) {
         srain[i][n].y = srain[i][n].y + app.dy;
 
-        if (n == 1) SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
-        else if (n == 2) SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
-        else if (n == 3) SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+        if (n == 0) {
+            SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
+        }
+        else if (n == 1) {
+            SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
+        }
+        else if (n == 2) {
+            SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+        }
+        else if (n == 3) {
+            SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+        }
+        else if (n == 4) {
+            SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+        }
     }
 
     return i;
