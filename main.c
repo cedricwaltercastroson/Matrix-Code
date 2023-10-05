@@ -16,7 +16,7 @@
 #define RAIN_START_Y            0
 #define Increment               5   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
 #define IncrementMax            6   //value of Increment + 1 aka null terminator
-#define DEFAULT_FPS             30
+#define DEFAULT_FPS             15
 #define ALPHABET_SIZE           62
 
 int sizeToFill; // Dynamic array for mn
@@ -114,13 +114,23 @@ void freeTexturesAndSurfaces() {
 int generateUniqueRandomNumber(int range) {
     static int* uniqueNumbers = NULL;
     static int currentIndex = 0;
+    static int seedInitialized = 0;
 
     // Initialize the uniqueNumbers array on the first call
     if (uniqueNumbers == NULL) {
         uniqueNumbers = (int*)malloc(range * sizeof(int));
         if (uniqueNumbers == NULL) {
             printf("error: memory allocation failed for uniqueNumbers array.\n");
-            terminate(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
+        }
+
+        // Seed the random number generator only once
+        if (!seedInitialized) {
+            unsigned int seed = (unsigned int)time(NULL);
+            seed ^= (unsigned int)clock();
+            seed ^= (unsigned int)rand();
+            srand(seed);
+            seedInitialized = 1;
         }
 
         // Fill the array with values from 0 to range - 1
@@ -128,9 +138,9 @@ int generateUniqueRandomNumber(int range) {
             uniqueNumbers[i] = i;
         }
 
-        // Shuffle the array to add unpredictability
-        for (int i = 0; i < range - 1; i++) {
-            int j = i + rand() % (range - i);
+        // Shuffle the array using the Fisher-Yates shuffle algorithm
+        for (int i = range - 1; i > 0; i--) {
+            int j = rand() % (i + 1);
             int temp = uniqueNumbers[i];
             uniqueNumbers[i] = uniqueNumbers[j];
             uniqueNumbers[j] = temp;
@@ -251,10 +261,14 @@ int main(int argc, char* argv[])
         }
 
         if (RANGE != 0 && DM.w > 0) {
-            spawn_rain(srain, generateUniqueRandomNumber(RANGE));
-        
-            for (int x = 0; x < RANGE; ++x)
-            {
+            int randomCount = rand() % 2 + 1; // Randomly choose 1 or 2 raindrops to spawn
+
+            for (int i = 0; i < randomCount; ++i) {
+                int randomIndex = generateUniqueRandomNumber(RANGE);
+                spawn_rain(srain, randomIndex);
+            }
+
+            for (int x = 0; x < RANGE; ++x) {
                 move_rain(srain, x);
             }
         }
