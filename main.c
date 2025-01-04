@@ -14,7 +14,7 @@
 #define RAIN_WIDTH_HEIGHT       20
 #define SPACING                 12  //12 is okay, 20 is an option
 #define RAIN_START_Y            0
-#define Increment               5   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
+#define Increment               7   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
 #define DEFAULT_FPS             60
 #define ALPHABET_SIZE           62
 
@@ -35,6 +35,8 @@ Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 SDL_Texture* texthead[ALPHABET_SIZE] = { NULL };
 SDL_Surface* surfacehead[ALPHABET_SIZE] = { NULL };
+SDL_Texture* textheadf[ALPHABET_SIZE] = { NULL };
+SDL_Surface* surfaceheadf[ALPHABET_SIZE] = { NULL };
 SDL_Texture* textneck[ALPHABET_SIZE] = { NULL };
 SDL_Surface* surfaceneck[ALPHABET_SIZE] = { NULL };
 SDL_Texture* textbody[ALPHABET_SIZE] = { NULL };
@@ -98,6 +100,9 @@ void freeTexturesAndSurfaces() {
     for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
         SDL_DestroyTexture(texthead[srnclean]);
         SDL_FreeSurface(surfacehead[srnclean]);
+
+        SDL_DestroyTexture(textheadf[srnclean]);
+        SDL_FreeSurface(surfaceheadf[srnclean]);
 
         SDL_DestroyTexture(textneck[srnclean]);
         SDL_FreeSurface(surfaceneck[srnclean]);
@@ -182,6 +187,8 @@ int main(int argc, char* argv[])
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
+    SDL_Color foregroundheadf = { 0, 255, 180 };
+    SDL_Color backgroundheadf = { 0, 0, 0 };
     SDL_Color foregroundneck = { 0, 143, 17 }; 
     SDL_Color backgroundneck = { 0, 0, 0 };
     SDL_Color foregroundbody = { 0, 48, 0 }; //{ 0, 85, 0 };
@@ -209,6 +216,9 @@ int main(int argc, char* argv[])
     {
         surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
         texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
+
+        surfaceheadf[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundheadf, backgroundheadf);
+        textheadf[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceheadf[srn]);
 
         surfaceneck[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundneck, backgroundneck);
         textneck[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceneck[srn]);
@@ -457,32 +467,12 @@ int spawn_rain(SDL_Rect** srain) {
     for (int t = 0; t < Increment; t++) {
         srain[randomIndex][t].x = spawnX;
 
-        // Adjust Y positions to create the tail effect (falling)
-        if (t == 0) {
-            srain[randomIndex][t].y = RAIN_START_Y - 20;
-            srain[randomIndex][0].w = emptyTextureWidth;   // Use pre-calculated width
-            srain[randomIndex][0].h = emptyTextureHeight;  // Use pre-calculated height
-        }
-        else if (t == 1) {
-            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - 20;
-            srain[randomIndex][1].w = emptyTextureWidth;
-            srain[randomIndex][1].h = emptyTextureHeight;
-        }
-        else if (t == 2) {
-            srain[randomIndex][t].y = srain[randomIndex][t - 2].y - 60;
-            srain[randomIndex][2].w = emptyTextureWidth;
-            srain[randomIndex][2].h = emptyTextureHeight;
-        }
-        else if (t == 3) {
-            srain[randomIndex][t].y = srain[randomIndex][t - 3].y - ((DM.h / 2) - 100);
-            srain[randomIndex][3].w = emptyTextureWidth;
-            srain[randomIndex][3].h = emptyTextureHeight;
-        }
-        else if (t == 4) {
-            srain[randomIndex][t].y = srain[randomIndex][t - 4].y - (DM.h / 2);
-            srain[randomIndex][4].w = emptyTextureWidth;
-            srain[randomIndex][4].h = emptyTextureHeight;
-        }
+        // Adjust Y positions to create the tail effect (falling) with consistent 20-pixel spacing
+        srain[randomIndex][t].y = RAIN_START_Y - (t * 120);  // First part starts at RAIN_START_Y, others fall 120px below each part 100px works but you need to change movement to 1.10f in move_rain
+
+        // Set the width and height for each part
+        srain[randomIndex][t].w = emptyTextureWidth;
+        srain[randomIndex][t].h = emptyTextureHeight;
     }
 
     // Randomize the speed for the raindrop (normal or faster)
@@ -504,35 +494,45 @@ int move_rain(SDL_Rect** srain, int i) {
         randomValues[n] = rand() % 62;
     }
 
-    // Define a constant step size for all raindrops (e.g., 20 pixels)
-    const int STEP_SIZE = 20;
+    // Base movement (app.dy * speed[i]) for the raindrop
+    float movement = app.dy * speed[i];
 
-    // Calculate the movement factor (app.dy * speed[i])
-    float movement = app.dy * speed[i];  // Multiply app.dy with raindrop speed
+    // If it's a faster raindrop, we apply a speed multiplier
+    if (speed[i] > 1.0f) {
+        movement *= 1.30f;  // Adjust speed multiplier for faster drops works on 120px but you need to change 100px in spawn_rain if you change this to 1.10f
+    }
 
-    // If it's a faster raindrop, we want to adjust the movement more (move by more pixels)
-    movement = (speed[i] > 1.0f) ? movement * 2 : movement;  // Speed adjustment for faster raindrops
-
-    // Adjust the raindrop's y position based on the calculated movement
+    // Adjust each raindrop part’s y position based on the movement
     for (int n = 0; n < Increment; ++n) {
-        // Move all parts by the calculated movement (use STEP_SIZE for consistent movement)
-        srain[i][n].y += (int)(movement * STEP_SIZE / 20.0f);  // Keep the step size at 20 for all parts
+        // Apply movement to each part (increase y for downward movement)
+        srain[i][n].y += (int)(movement);  // Apply movement to the y-coordinate of each part
+
+        // Fix the Y-spacing between parts to avoid gaps or overlaps
+//        if (n > 0) {
+//            srain[i][n].y = srain[i][n - 1].y;// - partSpacing; // Keep parts spaced consistently
+//        }
 
         // Render the raindrop
-        if (speed[i] > 1.0f) {  // Check if it's a faster raindrop
+        if (speed[i] > 1.0f) {  // For faster raindrops
             if (n == 0) {  // Head part
-                SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 1) {  // Neck part
-                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 2) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 3) {  // Tail part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 4) {  // Empty part
+                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+            }
+            else if (n == 5) {  // Empty part
+                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+            }
+            else if (n == 6) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
         }
@@ -552,6 +552,12 @@ int move_rain(SDL_Rect** srain, int i) {
             else if (n == 4) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
+            else if (n == 5) {  // Empty part
+                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+            }
+            else if (n == 6) {  // Empty part
+                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+            }
         }
     }
 
@@ -563,4 +569,3 @@ int move_rain(SDL_Rect** srain, int i) {
 
     return i;
 }
-
