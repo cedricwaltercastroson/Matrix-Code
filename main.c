@@ -449,23 +449,29 @@ int spawn_rain(SDL_Rect** srain) {
         // Adjust Y positions to create the tail effect (falling)
         if (t == 0) {
             srain[randomIndex][t].y = RAIN_START_Y - 20;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][0].w, &srain[randomIndex][0].h);
+            // Remove the redundant SDL_QueryTexture call here
+            srain[randomIndex][0].w = emptyTextureWidth;   // Use pre-calculated width
+            srain[randomIndex][0].h = emptyTextureHeight;  // Use pre-calculated height
         }
         else if (t == 1) {
             srain[randomIndex][t].y = srain[randomIndex][t - 1].y - 20;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][1].w, &srain[randomIndex][1].h);
+            srain[randomIndex][1].w = emptyTextureWidth;
+            srain[randomIndex][1].h = emptyTextureHeight;
         }
         else if (t == 2) {
             srain[randomIndex][t].y = srain[randomIndex][t - 2].y - 60;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][2].w, &srain[randomIndex][2].h);
+            srain[randomIndex][2].w = emptyTextureWidth;
+            srain[randomIndex][2].h = emptyTextureHeight;
         }
         else if (t == 3) {
             srain[randomIndex][t].y = srain[randomIndex][t - 3].y - ((DM.h / 2) - 100);
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][3].w, &srain[randomIndex][3].h);
+            srain[randomIndex][3].w = emptyTextureWidth;
+            srain[randomIndex][3].h = emptyTextureHeight;
         }
         else if (t == 4) {
             srain[randomIndex][t].y = srain[randomIndex][t - 4].y - (DM.h / 2);
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][4].w, &srain[randomIndex][4].h);
+            srain[randomIndex][4].w = emptyTextureWidth;
+            srain[randomIndex][4].h = emptyTextureHeight;
         }
     }
 
