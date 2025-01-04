@@ -336,7 +336,6 @@ void initialize()
     // Dynamically allocate isActive array based on RANGE
     isActive = (int*)calloc(RANGE, sizeof(int));  // Automatically initializes to 0
 
-    // Assuming RANGE is the total number of raindrops
     speed = (float*)malloc(RANGE * sizeof(float));
     if (speed == NULL) {
         printf("Memory allocation failed for speed array.\n");
