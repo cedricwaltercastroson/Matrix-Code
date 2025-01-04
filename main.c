@@ -14,19 +14,18 @@
 #define RAIN_WIDTH_HEIGHT       20
 #define SPACING                 12  //12 is okay, 20 is an option
 #define RAIN_START_Y            0
-#define Increment               5   //tailbody effect remember to also modify incrementmax which is n+1 due to the array null terminator
-#define IncrementMax            6   //value of Increment + 1 aka null terminator
-#define DEFAULT_FPS             15
+#define Increment               5   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
+#define DEFAULT_FPS             60
 #define ALPHABET_SIZE           62
 
-int sizeToFill; // Dynamic array for mn
-int RANGE_MAX; // Max value for the RANGE constant, calculated dynamically
+int emptyTextureWidth, emptyTextureHeight;
 int* mn; // Pointer to hold the mn value dynamically allocated
 int RANGE = 0; // Global declare required for initialize() function
+int* isActive = NULL;  // Pointer to dynamically allocated array tracking active raindrops
 
-float rain_speed = 1.0f;
-const float max_rain_speed = 3.0f; // Set the maximum rain_speed value
-const float min_rain_speed = 0.1f;  // Set the minimum rain_speed value
+float rain_speed = 0.2f;
+const float max_rain_speed = 2.0f; // Set the maximum rain_speed value
+const float min_rain_speed = 0.2f;  // Set the minimum rain_speed value
 float increment_rain_speed = 0.1f;    // Increment value for rain_speed
 
 Mix_Music* music = NULL;
@@ -44,9 +43,8 @@ SDL_Surface* surfaceempty = NULL;
 
 void initialize(void);
 void terminate(int exit_code);
-int generateUniqueRandomNumber(int range);
 
-int spawn_rain(SDL_Rect** srain, int i);
+int spawn_rain(SDL_Rect** srain);
 int move_rain(SDL_Rect** srain, int i);
 
 typedef struct {
@@ -111,53 +109,6 @@ void freeTexturesAndSurfaces() {
     SDL_FreeSurface(surfaceempty);
 }
 
-int generateUniqueRandomNumber(int range) {
-    static int* uniqueNumbers = NULL;
-    static int currentIndex = 0;
-    static int seedInitialized = 0;
-
-    // Initialize the uniqueNumbers array on the first call
-    if (uniqueNumbers == NULL) {
-        uniqueNumbers = (int*)malloc(range * sizeof(int));
-        if (uniqueNumbers == NULL) {
-            printf("error: memory allocation failed for uniqueNumbers array.\n");
-            exit(EXIT_FAILURE);
-        }
-
-        // Seed the random number generator only once
-        if (!seedInitialized) {
-            unsigned int seed = (unsigned int)time(NULL);
-            seed ^= (unsigned int)clock();
-            seed ^= (unsigned int)rand();
-            srand(seed);
-            seedInitialized = 1;
-        }
-
-        // Fill the array with values from 0 to range - 1
-        for (int i = 0; i < range; i++) {
-            uniqueNumbers[i] = i;
-        }
-
-        // Shuffle the array using the Fisher-Yates shuffle algorithm
-        for (int i = range - 1; i > 0; i--) {
-            int j = rand() % (i + 1);
-            int temp = uniqueNumbers[i];
-            uniqueNumbers[i] = uniqueNumbers[j];
-            uniqueNumbers[j] = temp;
-        }
-    }
-
-    // Ensure currentIndex is within bounds
-    if (currentIndex >= range) {
-        currentIndex = 0;
-    }
-
-    // Get the next unique number from the shuffled array
-    int randomNumber = uniqueNumbers[currentIndex++];
-
-    return randomNumber;
-}
-
 // Function to free dynamically allocated memory
 void cleanupMemory() {
     // Free the dynamically allocated memory for mn array
@@ -184,11 +135,11 @@ int main(int argc, char* argv[])
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 0, 143, 17 };
+    SDL_Color foregroundneck = { 0, 143, 17 }; 
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 85, 0 };
+    SDL_Color foregroundbody = { 0, 48, 0 }; //{ 0, 85, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
-    SDL_Color foregroundtail = { 0, 59, 0 };
+    SDL_Color foregroundtail = { 0, 24, 0 }; //{ 0, 59, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
@@ -200,7 +151,7 @@ int main(int argc, char* argv[])
         terminate(EXIT_FAILURE);
     }
     for (int i = 0; i < RANGE; i++) {
-        srain[i] = (SDL_Rect*)calloc(IncrementMax, sizeof(SDL_Rect));
+        srain[i] = (SDL_Rect*)calloc(Increment + 1, sizeof(SDL_Rect));
         if (srain[i] == NULL) {
             printf("error: memory allocation failed for srain subarray %d.\n", i);
             terminate(EXIT_FAILURE);
@@ -225,6 +176,9 @@ int main(int argc, char* argv[])
     surfaceempty = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
     textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
 
+    // Query the empty texture dimensions once
+    SDL_QueryTexture(textempty, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
+
     // enter app loop
     while (app.running) {
 
@@ -242,36 +196,39 @@ int main(int argc, char* argv[])
                 switch (e.key.keysym.sym) {
                 case SDLK_UP:
                     // Increase rain_speed but ensure it doesn't exceed max_rain_speed
-                    if (rain_speed < max_rain_speed) {
-                        rain_speed += increment_rain_speed;
+                    rain_speed += increment_rain_speed;
+                    if (rain_speed > max_rain_speed) {
+                        rain_speed = max_rain_speed;
                     }
                     break;
                 case SDLK_DOWN:
                     // Decrease rain_speed but ensure it doesn't go below min_rain_speed
-                    if (rain_speed > min_rain_speed + increment_rain_speed) {
-                        rain_speed -= increment_rain_speed;
+                    rain_speed -= increment_rain_speed;
+                    if (rain_speed < min_rain_speed) {
+                        rain_speed = min_rain_speed;
                     }
                     break;
                 case SDLK_SPACE:
                     // Reset rain_speed to default value
-                    rain_speed = 1.0f;
+                    rain_speed = 0.2f;
                     break;
                 }
             }
         }
 
         if (RANGE != 0 && DM.w > 0) {
-            int randomCount = rand() % 2 + 1; // Randomly choose 1 or 2 raindrops to spawn
+
+            int randomCount = (rand() % 2 == 0) ? 5 : 1;  // 50% chance for 5, 50% chance for 1
 
             for (int i = 0; i < randomCount; ++i) {
-                int randomIndex = generateUniqueRandomNumber(RANGE);
-                spawn_rain(srain, randomIndex);
+                spawn_rain(srain);
             }
 
             for (int x = 0; x < RANGE; ++x) {
                 move_rain(srain, x);
             }
         }
+
 
         SDL_RenderPresent(app.renderer);
 
@@ -313,10 +270,7 @@ void initialize()
     int SCREEN_HEIGHT = DM.h;
 
     // Calculate the value of RANGE
-    RANGE = SCREEN_WIDTH / SPACING;
-
-    // Calculate the value of RANGE_MAX based on the calculated RANGE
-    RANGE_MAX = RANGE;
+    RANGE = DM.w / SPACING;
 
     // Clear and allocate memory for mn arrays
     mn = (int*)calloc(RANGE, sizeof(int));
@@ -326,10 +280,12 @@ void initialize()
     }
 
     // Fill the mn array with data starting from 0 and incrementing by SPACING
-    sizeToFill = RANGE < RANGE_MAX ? RANGE : RANGE_MAX;
-    for (int i = 0; i < sizeToFill; i++) {
+    for (int i = 0; i < RANGE; i++) {
         mn[i] = i * SPACING;
     }
+
+    // Dynamically allocate isActive array based on RANGE
+    isActive = (int*)calloc(RANGE, sizeof(int));  // Automatically initializes to 0
 
     // create the app window
     app.window = SDL_CreateWindow("Matrix-Code",
@@ -357,6 +313,12 @@ void initialize()
         printf("error: failed to create renderer: %s\n", SDL_GetError());
         terminate(EXIT_FAILURE);
     }
+
+    // Set logical size before starting rendering
+    SDL_RenderSetLogicalSize(app.renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // Disable any scaling (logical size scaling)
+    SDL_RenderSetScale(app.renderer, 1.0f, 1.0f);  // No scaling
 
     if (TTF_Init() < 0) {
         printf("Error initializing SDL_ttf: %s\n", TTF_GetError());
@@ -405,54 +367,89 @@ void terminate(int exit_code)
     exit(exit_code);
 }
 
-int spawn_rain(SDL_Rect** srain, int i)
-{
-    srain[i][0].x = mn[i];
-    srain[i][0].y = RAIN_START_Y;
+int spawn_rain(SDL_Rect** srain) {
+    int randomIndex = -1;
 
-    for (int t = 0; t < Increment; t++)
-    {
-        srain[i][t].x = srain[i][0].x;
-        if (t == 0)
-        {
-            srain[i][t].y = srain[i][t].y - 20;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][0].w, &srain[i][0].h); //spawn data but display nothing
-        }
-        else if (t == 1)
-        {
-            srain[i][t].y = srain[i][t - 1].y - 20;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][1].w, &srain[i][1].h); //spawn data but display nothing
-        }
-        else if (t == 2)
-        {
-            srain[i][t].y = srain[i][t - 2].y - 80;
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][2].w, &srain[i][2].h); //spawn data but display nothing
-        }
-        else if (t == 3)
-        {
-            srain[i][t].y = srain[i][t - 3].y - ((DM.h / 2) - 100);
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][3].w, &srain[i][3].h); //spawn data but display nothing
-        }
-        else if (t == 4)
-        {
-            srain[i][t].y = srain[i][t - 4].y - (DM.h / 2);
-            SDL_QueryTexture(textempty, NULL, NULL, &srain[i][4].w, &srain[i][4].h); //spawn data but display nothing
+    // Loop to find an inactive raindrop index within the range of RANGE_MAX
+    for (int i = 0; i < RANGE; i++) {
+        if (isActive[i] == 0) {  // 0 means inactive
+            randomIndex = i;
+            break;
         }
     }
 
-    return i;
+    if (randomIndex == -1) {
+        // All raindrops are active, return -1 to indicate no spawning
+        return -1;
+    }
+
+    // Randomly select an x-coordinate from the dynamically allocated 'mn' array
+    int spawnX = mn[rand() % RANGE];  // Get a random x-coordinate from 'mn'
+
+    // Check if there's already an active raindrop in the spawn area
+    for (int i = 0; i < RANGE; i++) {
+        if (isActive[i] == 1 && srain[i][Increment - 1].x == spawnX && srain[i][Increment - 1].y < DM.h) {
+            // If an active raindrop exists in this area, don't spawn a new one
+            return -1;
+        }
+    }
+
+    // Initialize the raindrop at the random x-coordinate, starting from the top
+    srain[randomIndex][0].x = spawnX;
+    srain[randomIndex][0].y = RAIN_START_Y;
+
+    // Add multiple parts to the "raindrop" (tail, body, etc.)
+    for (int t = 0; t < Increment; t++) {
+        srain[randomIndex][t].x = spawnX;
+
+        // Adjust Y positions to create the tail effect (falling)
+        if (t == 0) {
+            srain[randomIndex][t].y = RAIN_START_Y - 20;
+            // Remove the redundant SDL_QueryTexture call here
+            srain[randomIndex][0].w = emptyTextureWidth;   // Use pre-calculated width
+            srain[randomIndex][0].h = emptyTextureHeight;  // Use pre-calculated height
+        }
+        else if (t == 1) {
+            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - 20;
+            srain[randomIndex][1].w = emptyTextureWidth;
+            srain[randomIndex][1].h = emptyTextureHeight;
+        }
+        else if (t == 2) {
+            srain[randomIndex][t].y = srain[randomIndex][t - 2].y - 60;
+            srain[randomIndex][2].w = emptyTextureWidth;
+            srain[randomIndex][2].h = emptyTextureHeight;
+        }
+        else if (t == 3) {
+            srain[randomIndex][t].y = srain[randomIndex][t - 3].y - ((DM.h / 2) - 100);
+            srain[randomIndex][3].w = emptyTextureWidth;
+            srain[randomIndex][3].h = emptyTextureHeight;
+        }
+        else if (t == 4) {
+            srain[randomIndex][t].y = srain[randomIndex][t - 4].y - (DM.h / 2);
+            srain[randomIndex][4].w = emptyTextureWidth;
+            srain[randomIndex][4].h = emptyTextureHeight;
+        }
+    }
+
+    // Mark this raindrop as active
+    isActive[randomIndex] = 1;  // 1 means active
+
+    return randomIndex;
 }
 
-int move_rain(SDL_Rect** srain, int i)
-{
+int move_rain(SDL_Rect** srain, int i) {
     int randomValues[Increment];
+
+    // Randomize the textures for each part of the raindrop
     for (int n = 0; n < Increment; ++n) {
-        randomValues[n] = rand() % 61;
+        randomValues[n] = rand() % 62;
     }
 
+    // Move the raindrop down
     for (int n = 0; n < Increment; ++n) {
-        srain[i][n].y = srain[i][n].y + app.dy;
+        srain[i][n].y += app.dy;  // Move down by some delta (e.g., app.dy)
 
+        // Render the raindrop
         if (n == 0) {
             SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
         }
@@ -470,5 +467,12 @@ int move_rain(SDL_Rect** srain, int i)
         }
     }
 
+    // Check if the raindrop has reached the bottom of the screen
+    if (srain[i][Increment - 1].y >= DM.h) {
+        // Mark the raindrop as inactive once it reaches the bottom
+        isActive[i] = 0;  // 0 means inactive
+    }
+
     return i;
 }
+
