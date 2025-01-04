@@ -43,6 +43,7 @@ SDL_Surface* surfaceempty = NULL;
 
 void initialize(void);
 void terminate(int exit_code);
+int generateUniqueRandomNumber(int range);
 
 int spawn_rain(SDL_Rect** srain);
 int move_rain(SDL_Rect** srain, int i);
@@ -109,6 +110,46 @@ void freeTexturesAndSurfaces() {
     SDL_FreeSurface(surfaceempty);
 }
 
+int generateUniqueRandomNumber(int range) {
+    static int* uniqueNumbers = NULL;
+    static int currentIndex = 0;
+    static int seedInitialized = 0;
+    // Initialize the uniqueNumbers array on the first call
+    if (uniqueNumbers == NULL) {
+        uniqueNumbers = (int*)malloc(range * sizeof(int));
+        if (uniqueNumbers == NULL) {
+            printf("error: memory allocation failed for uniqueNumbers array.\n");
+            exit(EXIT_FAILURE);
+        }
+        // Seed the random number generator only once
+        if (!seedInitialized) {
+            unsigned int seed = (unsigned int)time(NULL);
+            seed ^= (unsigned int)clock();
+            seed ^= (unsigned int)rand();
+            srand(seed);
+            seedInitialized = 1;
+        }
+        // Fill the array with values from 0 to range - 1
+        for (int i = 0; i < range; i++) {
+            uniqueNumbers[i] = i;
+        }
+        // Shuffle the array using the Fisher-Yates shuffle algorithm
+        for (int i = range - 1; i > 0; i--) {
+            int j = rand() % (i + 1);
+            int temp = uniqueNumbers[i];
+            uniqueNumbers[i] = uniqueNumbers[j];
+            uniqueNumbers[j] = temp;
+        }
+    }
+    // Ensure currentIndex is within bounds
+    if (currentIndex >= range) {
+        currentIndex = 0;
+    }
+    // Get the next unique number from the shuffled array
+    int randomNumber = uniqueNumbers[currentIndex++];
+    return randomNumber;
+}
+
 // Function to free dynamically allocated memory
 void cleanupMemory() {
     // Free the dynamically allocated memory for mn array
@@ -158,7 +199,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    for (int srn = 0; srn < ALPHABET_SIZE; srn++) //src stands for some random number range from 0 to 62
+    for (int srn = 0; srn < ALPHABET_SIZE; srn++) //srn stands for some random number range from 0 to 62
     {
         surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
         texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
@@ -218,7 +259,9 @@ int main(int argc, char* argv[])
 
         if (RANGE != 0 && DM.w > 0) {
 
-            int randomCount = (rand() % 2 == 0) ? 5 : 1;  // 50% chance for 5, 50% chance for 1
+            //int randomCount = (rand() % 2 == 0) ? 5 : 1;  // 50% chance for 5, 50% chance for 1
+
+            int randomCount = (rand() % 100 < 75) ? 1 : 3;
 
             for (int i = 0; i < randomCount; ++i) {
                 spawn_rain(srain);
@@ -383,18 +426,19 @@ int spawn_rain(SDL_Rect** srain) {
         return -1;
     }
 
-    // Randomly select an x-coordinate from the dynamically allocated 'mn' array
-    int spawnX = mn[rand() % RANGE];  // Get a random x-coordinate from 'mn'
+    // Use generateUniqueRandomNumber to get a unique X-coordinate
+    int spawnX = mn[generateUniqueRandomNumber(RANGE)];  // Get a unique X-coordinate from 'mn'
 
-    // Check if there's already an active raindrop in the spawn area
+    // Check if there's already an active raindrop at the same X position
     for (int i = 0; i < RANGE; i++) {
+        // Check if there's an active raindrop at this X coordinate and if it is still within the screen bounds
         if (isActive[i] == 1 && srain[i][Increment - 1].x == spawnX && srain[i][Increment - 1].y < DM.h) {
             // If an active raindrop exists in this area, don't spawn a new one
             return -1;
         }
     }
 
-    // Initialize the raindrop at the random x-coordinate, starting from the top
+    // Initialize the raindrop at the random X-coordinate, starting from the top
     srain[randomIndex][0].x = spawnX;
     srain[randomIndex][0].y = RAIN_START_Y;
 
@@ -405,29 +449,23 @@ int spawn_rain(SDL_Rect** srain) {
         // Adjust Y positions to create the tail effect (falling)
         if (t == 0) {
             srain[randomIndex][t].y = RAIN_START_Y - 20;
-            // Remove the redundant SDL_QueryTexture call here
-            srain[randomIndex][0].w = emptyTextureWidth;   // Use pre-calculated width
-            srain[randomIndex][0].h = emptyTextureHeight;  // Use pre-calculated height
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][0].w, &srain[randomIndex][0].h);
         }
         else if (t == 1) {
             srain[randomIndex][t].y = srain[randomIndex][t - 1].y - 20;
-            srain[randomIndex][1].w = emptyTextureWidth;
-            srain[randomIndex][1].h = emptyTextureHeight;
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][1].w, &srain[randomIndex][1].h);
         }
         else if (t == 2) {
             srain[randomIndex][t].y = srain[randomIndex][t - 2].y - 60;
-            srain[randomIndex][2].w = emptyTextureWidth;
-            srain[randomIndex][2].h = emptyTextureHeight;
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][2].w, &srain[randomIndex][2].h);
         }
         else if (t == 3) {
             srain[randomIndex][t].y = srain[randomIndex][t - 3].y - ((DM.h / 2) - 100);
-            srain[randomIndex][3].w = emptyTextureWidth;
-            srain[randomIndex][3].h = emptyTextureHeight;
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][3].w, &srain[randomIndex][3].h);
         }
         else if (t == 4) {
             srain[randomIndex][t].y = srain[randomIndex][t - 4].y - (DM.h / 2);
-            srain[randomIndex][4].w = emptyTextureWidth;
-            srain[randomIndex][4].h = emptyTextureHeight;
+            SDL_QueryTexture(textempty, NULL, NULL, &srain[randomIndex][4].w, &srain[randomIndex][4].h);
         }
     }
 
@@ -436,6 +474,7 @@ int spawn_rain(SDL_Rect** srain) {
 
     return randomIndex;
 }
+
 
 int move_rain(SDL_Rect** srain, int i) {
     int randomValues[Increment];
