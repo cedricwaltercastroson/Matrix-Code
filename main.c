@@ -191,9 +191,9 @@ int main(int argc, char* argv[])
     SDL_Color backgroundheadf = { 0, 0, 0 };
     SDL_Color foregroundneck = { 0, 143, 17 }; 
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 48, 0 }; //{ 0, 85, 0 };
+    SDL_Color foregroundbody = { 0, 85, 0 }; //{ 0, 85, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
-    SDL_Color foregroundtail = { 0, 24, 0 }; //{ 0, 59, 0 };
+    SDL_Color foregroundtail = { 0, 48, 0 }; //{ 0, 59, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
@@ -467,8 +467,15 @@ int spawn_rain(SDL_Rect** srain) {
     for (int t = 0; t < Increment; t++) {
         srain[randomIndex][t].x = spawnX;
 
-        // Adjust Y positions to create the tail effect (falling) with consistent 20-pixel spacing
-        srain[randomIndex][t].y = RAIN_START_Y - (t * 120);  // First part starts at RAIN_START_Y, others fall 120px below each part 100px works but you need to change movement to 1.10f in move_rain
+        // Adjust Y positions with a progressive spacing pattern
+        if (t == 0) {
+            // First part (head) starts at RAIN_START_Y
+            srain[randomIndex][t].y = RAIN_START_Y;
+        }
+        else {
+            // Subsequent parts have increasing spacing (40px)
+            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - (t * 40);  // 40px increments
+        }
 
         // Set the width and height for each part
         srain[randomIndex][t].w = emptyTextureWidth;
@@ -499,7 +506,7 @@ int move_rain(SDL_Rect** srain, int i) {
 
     // If it's a faster raindrop, we apply a speed multiplier
     if (speed[i] > 1.0f) {
-        movement *= 1.30f;  // Adjust speed multiplier for faster drops works on 120px but you need to change 100px in spawn_rain if you change this to 1.10f
+        movement *= 1.35f;  // Adjust speed multiplier for faster raindrops and works on 40px in spawn_rain
     }
 
     // Adjust each raindrop part’s y position based on the movement
@@ -521,13 +528,13 @@ int move_rain(SDL_Rect** srain, int i) {
                 SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 2) {  // Body part
-                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
-            }
-            else if (n == 3) {  // Tail part
                 SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 4) {  // Empty part
+            else if (n == 3) {  // Tail part
                 SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+            }
+            else if (n == 4) {  // Empty part
+                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
             else if (n == 5) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
