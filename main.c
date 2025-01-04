@@ -187,7 +187,7 @@ int main(int argc, char* argv[])
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundheadf = { 0, 255, 180 };
+    SDL_Color foregroundheadf = { 255, 255, 255 };
     SDL_Color backgroundheadf = { 0, 0, 0 };
     SDL_Color foregroundneck = { 0, 143, 17 }; 
     SDL_Color backgroundneck = { 0, 0, 0 };
