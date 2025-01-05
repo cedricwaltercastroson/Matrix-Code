@@ -18,6 +18,8 @@
 #define DEFAULT_FPS             60
 #define ALPHABET_SIZE           62
 
+const Uint32 frame_delay = 3000 / DEFAULT_FPS;
+
 int emptyTextureWidth, emptyTextureHeight;
 int* mn; // Pointer to hold the mn value dynamically allocated
 int RANGE = 0; // Global declare required for initialize() function
@@ -230,10 +232,6 @@ int main(int argc, char* argv[])
     // Query the empty texture dimensions once
     SDL_QueryTexture(textempty, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
 
-    // FPS control variables
-    const Uint32 FPS = 60;
-    const Uint32 frame_delay = 3000 / FPS;  // Target frame duration in milliseconds
-
     // enter app loop
     while (app.running) {
 
@@ -402,7 +400,7 @@ void terminate(int exit_code)
 int spawn_rain(SDL_Rect** srain) {
     int randomIndex = -1;
 
-    // Loop to find an inactive raindrop index within the range of RANGE_MAX
+    // Loop to find an inactive raindrop index within the range of RANGE
     for (int i = 0; i < RANGE; i++) {
         if (isActive[i] == 0) {  // 0 means inactive
             randomIndex = i;
@@ -414,6 +412,9 @@ int spawn_rain(SDL_Rect** srain) {
         // All raindrops are active, return -1 to indicate no spawning
         return -1;
     }
+
+    // Determine if the raindrop will be normal, faster, or fastest
+    int dropType = rand() % 3;  // 0 = normal, 1 = faster, 2 = fastest
 
     // Use generateUniqueRandomNumber to get a unique X-coordinate
     int spawnX = mn[generateUniqueRandomNumber(RANGE)];  // Get a unique X-coordinate from 'mn'
@@ -430,8 +431,25 @@ int spawn_rain(SDL_Rect** srain) {
     srain[randomIndex][0].x = spawnX;
     srain[randomIndex][0].y = RAIN_START_Y;
 
-    // Randomize the speed for the raindrop (normal or faster)
-    float randomSpeed = (rand() % 100 < 80) ? 1.0f : 2.0f; // Normal speed (1.0) or Faster speed (2.0)
+    // Randomize the speed for the raindrop and set size multiplier
+    float randomSpeed;
+    float sizeMultiplier;
+    int spacing; // Spacing variable for segment distance
+    if (dropType == 0) {  // Normal raindrop
+        randomSpeed = 1.0f;  // Default speed
+        sizeMultiplier = 1.0f;  // Normal size
+        spacing = 80;  // Normal spacing between segments
+    }
+    else if (dropType == 1) {  // Faster raindrop
+        randomSpeed = 2.0f;  // 2x speed
+        sizeMultiplier = 1.25f;  // 1.25x size
+        spacing = 40;  // Tighter spacing for faster drops
+    }
+    else {  // Fastest raindrop
+        randomSpeed = 4.0f;  // 4x speed
+        sizeMultiplier = 1.75f;  // 1.75x size
+        spacing = 80;  // Even tighter spacing for the fastest drops
+    }
     speed[randomIndex] = randomSpeed;
 
     // Loop to add multiple parts to the "raindrop" (tail, body, etc.)
@@ -445,15 +463,12 @@ int spawn_rain(SDL_Rect** srain) {
         }
         else {
             // Adjust spacing based on the speed of the raindrop
-            int spacing = (speed[randomIndex] == 2.0f) ? 40 : 80;  // Faster drops use 40px spacing, normal drops use 80px
-
-            // Subsequent parts have increasing spacing
             srain[randomIndex][t].y = srain[randomIndex][t - 1].y - (t * spacing); // Incremental spacing
         }
 
-        // Set the width and height for each part
-        srain[randomIndex][t].w = emptyTextureWidth;
-        srain[randomIndex][t].h = emptyTextureHeight;
+        // Set the width and height for each part, adjusted by the sizeMultiplier
+        srain[randomIndex][t].w = emptyTextureWidth * sizeMultiplier;
+        srain[randomIndex][t].h = emptyTextureHeight * sizeMultiplier;
     }
 
     // Mark this raindrop as active
@@ -462,13 +477,12 @@ int spawn_rain(SDL_Rect** srain) {
     return randomIndex;
 }
 
-
 int move_rain(SDL_Rect** srain, int i) {
     int randomValues[Increment];
 
     // Randomize the textures for each part of the raindrop
     for (int n = 0; n < Increment; ++n) {
-        randomValues[n] = rand() % 62;
+        randomValues[n] = rand() % ALPHABET_SIZE;
     }
 
     // Base movement (app.dy * speed[i]) for the raindrop
@@ -485,7 +499,27 @@ int move_rain(SDL_Rect** srain, int i) {
             continue;
         }
 
-        // Render the raindrop only if it's within the screen bounds
+        // Adjust the size of the raindrop based on its speed
+        float scale = 1.0f;  // Default scale for normal raindrops
+
+        if (speed[i] > 1.0f && speed[i] <= 2.0f) {
+            // Slightly larger size for moderately faster raindrops
+            scale = 1.125f;  // 1.125x size for moderate speed
+        }
+        else if (speed[i] > 2.0f) {
+            // Even larger size for very fast raindrops
+            scale = 1.5f;  // 1.25x size for very fast drops
+        }
+
+        // Adjust the width and height based on the scale factor
+        int scaledWidth = (int)(emptyTextureWidth * scale);
+        int scaledHeight = (int)(emptyTextureHeight * scale);
+
+        // Set the scaled width and height for each raindrop part
+        srain[i][n].w = scaledWidth;
+        srain[i][n].h = scaledHeight;
+
+        // Render the raindrop based on the size and position
         if (speed[i] > 1.0f) {  // For faster raindrops
             if (n == 0) {  // Head part
                 SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
@@ -499,13 +533,7 @@ int move_rain(SDL_Rect** srain, int i) {
             else if (n == 3) {  // Tail part
                 SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 4) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
-            }
-            else if (n == 5) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
-            }
-            else if (n == 6) {  // Empty part
+            else if (n >= 4) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
         }
@@ -522,13 +550,7 @@ int move_rain(SDL_Rect** srain, int i) {
             else if (n == 3) {  // Tail part
                 SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 4) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
-            }
-            else if (n == 5) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
-            }
-            else if (n == 6) {  // Empty part
+            else if (n >= 4) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
         }
