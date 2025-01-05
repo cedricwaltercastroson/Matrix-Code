@@ -26,11 +26,6 @@ int* isActive = NULL;  // Pointer to dynamically allocated array tracking active
 // Declare a pointer for the speed array
 float* speed;
 
-float rain_speed = 0.2f;
-const float max_rain_speed = 2.0f; // Set the maximum rain_speed value
-const float min_rain_speed = 0.2f;  // Set the minimum rain_speed value
-float increment_rain_speed = 0.1f;    // Increment value for rain_speed
-
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 SDL_Texture* texthead[ALPHABET_SIZE] = { NULL };
@@ -181,17 +176,15 @@ int main(int argc, char* argv[])
     // Initialize SDL and the relevant structures
     initialize();
 
-    Mix_PlayingMusic();
-
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
     SDL_Color foregroundhead = { 0, 255, 128 };
     SDL_Color backgroundhead = { 0, 0, 0 };
     SDL_Color foregroundheadf = { 255, 255, 255 };
     SDL_Color backgroundheadf = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 0, 143, 17 }; 
+    SDL_Color foregroundneck = { 0, 180, 80 };
     SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 85, 0 }; //{ 0, 85, 0 };
+    SDL_Color foregroundbody = { 0, 102, 32 }; //{ 0, 85, 0 };
     SDL_Color backgroundbody = { 0, 0, 0 };
     SDL_Color foregroundtail = { 0, 48, 0 }; //{ 0, 59, 0 };
     SDL_Color backgroundtail = { 0, 0, 0 };
@@ -212,6 +205,7 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Load fonts and textures for rain
     for (int srn = 0; srn < ALPHABET_SIZE; srn++) //srn stands for some random number range from 0 to 62
     {
         surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
@@ -236,49 +230,25 @@ int main(int argc, char* argv[])
     // Query the empty texture dimensions once
     SDL_QueryTexture(textempty, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
 
+    // FPS control variables
+    const Uint32 FPS = 60;
+    const Uint32 frame_delay = 3000 / FPS;  // Target frame duration in milliseconds
+
     // enter app loop
     while (app.running) {
 
-        Uint32 start_time = SDL_GetTicks();
-        Uint32 prev_frame_ticks = SDL_GetTicks();
+        Uint32 start_time = SDL_GetTicks();  // Start of frame
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) {
                 app.running = 0;
             }
-
-            // Handle keyboard events to control rain speed and reset to default
-            if (e.type == SDL_KEYDOWN) {
-                switch (e.key.keysym.sym) {
-                case SDLK_UP:
-                    // Increase rain_speed but ensure it doesn't exceed max_rain_speed
-                    rain_speed += increment_rain_speed;
-                    if (rain_speed > max_rain_speed) {
-                        rain_speed = max_rain_speed;
-                    }
-                    break;
-                case SDLK_DOWN:
-                    // Decrease rain_speed but ensure it doesn't go below min_rain_speed
-                    rain_speed -= increment_rain_speed;
-                    if (rain_speed < min_rain_speed) {
-                        rain_speed = min_rain_speed;
-                    }
-                    break;
-                case SDLK_SPACE:
-                    // Reset rain_speed to default value
-                    rain_speed = 0.2f;
-                    break;
-                }
-            }
         }
 
+        // Update raindrop logic
         if (RANGE != 0 && DM.w > 0) {
-
-            //int randomCount = (rand() % 2 == 0) ? 5 : 1;  // 50% chance for 5, 50% chance for 1
-
-            int randomCount = (rand() % 100 < 75) ? 1 : 3;
-
+            int randomCount = (rand() % 100 < 90) ? 1 : 2;
             for (int i = 0; i < randomCount; ++i) {
                 spawn_rain(srain);
             }
@@ -288,27 +258,24 @@ int main(int argc, char* argv[])
             }
         }
 
-
+        // Render the frame
         SDL_RenderPresent(app.renderer);
 
-        Uint32 end_time = SDL_GetTicks();
-        Uint32 frame_time = end_time - start_time;
+        // Calculate how long this frame took
+        Uint32 end_time = SDL_GetTicks();  // End of frame
+        Uint32 frame_time = end_time - start_time;  // Time taken for this frame
 
-        // Control the frame rate based on rain_speed
-        Uint32 frame_delay = 1000 / (Uint32)(DEFAULT_FPS * rain_speed);
-
-        // Calculate the time elapsed since the previous frame
-        Uint32 elapsed_ticks = SDL_GetTicks() - prev_frame_ticks;
-        if (elapsed_ticks < frame_delay) {
-            // If the frame has not taken enough time, use busy-wait loop to wait for the remaining time
-            Uint32 remaining_ticks = frame_delay - elapsed_ticks;
-            while (SDL_GetTicks() - prev_frame_ticks < remaining_ticks) {
-                // Busy-wait loop
-            }
+        // Calculate how much time to delay to maintain the FPS
+        if (frame_time < frame_delay) {
+            Uint32 delay_time = frame_delay - frame_time;
+            SDL_Delay(delay_time);  // Delay for the remaining time
         }
 
-        // Update previous frame's tick value
-        prev_frame_ticks = SDL_GetTicks();
+        // Optionally, you can log if the frame rate drops below target FPS
+        if (frame_time > frame_delay) {
+            // For instance, you can skip the frame or log the issue
+            printf("Warning: Frame time exceeded target, skipping frame to maintain FPS.\n");
+        }
     }
 
     // make sure program cleans up on exit
@@ -463,7 +430,11 @@ int spawn_rain(SDL_Rect** srain) {
     srain[randomIndex][0].x = spawnX;
     srain[randomIndex][0].y = RAIN_START_Y;
 
-    // Add multiple parts to the "raindrop" (tail, body, etc.)
+    // Randomize the speed for the raindrop (normal or faster)
+    float randomSpeed = (rand() % 100 < 80) ? 1.0f : 2.0f; // Normal speed (1.0) or Faster speed (2.0)
+    speed[randomIndex] = randomSpeed;
+
+    // Loop to add multiple parts to the "raindrop" (tail, body, etc.)
     for (int t = 0; t < Increment; t++) {
         srain[randomIndex][t].x = spawnX;
 
@@ -473,18 +444,17 @@ int spawn_rain(SDL_Rect** srain) {
             srain[randomIndex][t].y = RAIN_START_Y;
         }
         else {
-            // Subsequent parts have increasing spacing (40px)
-            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - (t * 40);  // 40px increments
+            // Adjust spacing based on the speed of the raindrop
+            int spacing = (speed[randomIndex] == 2.0f) ? 40 : 80;  // Faster drops use 40px spacing, normal drops use 80px
+
+            // Subsequent parts have increasing spacing
+            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - (t * spacing); // Incremental spacing
         }
 
         // Set the width and height for each part
         srain[randomIndex][t].w = emptyTextureWidth;
         srain[randomIndex][t].h = emptyTextureHeight;
     }
-
-    // Randomize the speed for the raindrop (normal or faster)
-    float randomSpeed = (rand() % 100 < 80) ? 1.0f : 1.5f; // Normal speed (1.0) or Faster speed (1.5)
-    speed[randomIndex] = randomSpeed;
 
     // Mark this raindrop as active
     isActive[randomIndex] = 1;  // 1 means active
@@ -504,22 +474,18 @@ int move_rain(SDL_Rect** srain, int i) {
     // Base movement (app.dy * speed[i]) for the raindrop
     float movement = app.dy * speed[i];
 
-    // If it's a faster raindrop, we apply a speed multiplier
-    if (speed[i] > 1.0f) {
-        movement *= 1.35f;  // Adjust speed multiplier for faster raindrops and works on 40px in spawn_rain
-    }
-
     // Adjust each raindrop part’s y position based on the movement
     for (int n = 0; n < Increment; ++n) {
         // Apply movement to each part (increase y for downward movement)
         srain[i][n].y += (int)(movement);  // Apply movement to the y-coordinate of each part
 
-        // Fix the Y-spacing between parts to avoid gaps or overlaps
-//        if (n > 0) {
-//            srain[i][n].y = srain[i][n - 1].y;// - partSpacing; // Keep parts spaced consistently
-//        }
+        // Check if the current part is off the screen
+        if (srain[i][n].y >= DM.h) {
+            // If this part is offscreen, do not render it
+            continue;
+        }
 
-        // Render the raindrop
+        // Render the raindrop only if it's within the screen bounds
         if (speed[i] > 1.0f) {  // For faster raindrops
             if (n == 0) {  // Head part
                 SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
@@ -568,7 +534,7 @@ int move_rain(SDL_Rect** srain, int i) {
         }
     }
 
-    // Check if the raindrop has reached the bottom of the screen
+    // After rendering, check if the raindrop has completely moved offscreen (the tail part)
     if (srain[i][Increment - 1].y >= DM.h) {
         // Mark the raindrop as inactive once it reaches the bottom
         isActive[i] = 0;  // 0 means inactive
@@ -576,3 +542,4 @@ int move_rain(SDL_Rect** srain, int i) {
 
     return i;
 }
+
