@@ -15,7 +15,7 @@
 #define CHAR_SPACING            12   //12 is okay, 20 is an option
 #define RAIN_START_Y            -30
 #define Increment               10   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
-#define DEFAULT_SIMULATION_STEP 10
+#define DEFAULT_SIMULATION_STEP 15
 #define ALPHABET_SIZE           62
 
 int emptyTextureWidth, emptyTextureHeight;
@@ -28,18 +28,29 @@ float* speed;
 
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
-SDL_Texture* texthead[ALPHABET_SIZE] = { NULL };
-SDL_Surface* surfacehead[ALPHABET_SIZE] = { NULL };
-SDL_Texture* textheadf[ALPHABET_SIZE] = { NULL };
-SDL_Surface* surfaceheadf[ALPHABET_SIZE] = { NULL };
-SDL_Texture* textneck[ALPHABET_SIZE] = { NULL };
-SDL_Surface* surfaceneck[ALPHABET_SIZE] = { NULL };
-SDL_Texture* textbody[ALPHABET_SIZE] = { NULL };
-SDL_Surface* surfacebody[ALPHABET_SIZE] = { NULL };
-SDL_Texture* texttail[ALPHABET_SIZE] = { NULL };
-SDL_Surface* surfacetail[ALPHABET_SIZE] = { NULL };
-SDL_Texture* textempty = NULL;
-SDL_Surface* surfaceempty = NULL;
+
+typedef struct {
+    SDL_Surface* headf;
+    SDL_Surface* head;
+    SDL_Surface* neck;
+    SDL_Surface* body;
+    SDL_Surface* tail;
+    SDL_Surface* empty;
+} RainSurfaces;
+
+typedef struct {
+    SDL_Texture* headf;
+    SDL_Texture* head;
+    SDL_Texture* neck;
+    SDL_Texture* body;
+    SDL_Texture* tail;
+    SDL_Texture* empty;
+} RainTextures;
+
+RainSurfaces rainSurfaces[ALPHABET_SIZE] = { 0 };
+RainTextures rainTextures[ALPHABET_SIZE] = { 0 };
+SDL_Surface* emptySurface = NULL;
+SDL_Texture* emptyTexture = NULL;
 
 void initialize(void);
 void terminate(int exit_code);
@@ -90,27 +101,31 @@ const char* alphabet[ALPHABET_SIZE] = {
     "y", "z"
 };
 
-// Function to free textures and surfaces
-void freeTexturesAndSurfaces() {
+SDL_Texture* createTextTexture(const char* text, SDL_Color fg, SDL_Color bg) {
+    SDL_Surface* surface = TTF_RenderText_Shaded(font1, text, fg, bg);
+    if (!surface) {
+        printf("Error rendering text surface: %s\n", TTF_GetError());
+        return NULL;
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(app.renderer, surface);
+    if (!texture) {
+        printf("Error creating texture from surface: %s\n", SDL_GetError());
+    }
+    SDL_FreeSurface(surface);
+    return texture;
+}
+
+// Function to free textures
+void freeRainTextures(RainTextures* rainTextures) {
     for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
-        SDL_DestroyTexture(texthead[srnclean]);
-        SDL_FreeSurface(surfacehead[srnclean]);
-
-        SDL_DestroyTexture(textheadf[srnclean]);
-        SDL_FreeSurface(surfaceheadf[srnclean]);
-
-        SDL_DestroyTexture(textneck[srnclean]);
-        SDL_FreeSurface(surfaceneck[srnclean]);
-
-        SDL_DestroyTexture(textbody[srnclean]);
-        SDL_FreeSurface(surfacebody[srnclean]);
-
-        SDL_DestroyTexture(texttail[srnclean]);
-        SDL_FreeSurface(surfacetail[srnclean]);
+        SDL_DestroyTexture(rainTextures[srnclean].headf);
+        SDL_DestroyTexture(rainTextures[srnclean].head);
+        SDL_DestroyTexture(rainTextures[srnclean].neck);
+        SDL_DestroyTexture(rainTextures[srnclean].body);
+        SDL_DestroyTexture(rainTextures[srnclean].tail);
     }
 
-    SDL_DestroyTexture(textempty);
-    SDL_FreeSurface(surfaceempty);
+    SDL_DestroyTexture(emptyTexture);
 }
 
 int generateUniqueRandomNumber(int range) {
@@ -167,8 +182,8 @@ void cleanupMemory() {
     }
     free(srain);
 
-    // Free textures and surfaces
-    freeTexturesAndSurfaces();
+    // Free textures
+    freeRainTextures(rainTextures);
 }
 
 int main(int argc, char* argv[])
@@ -210,29 +225,40 @@ int main(int argc, char* argv[])
     }
 
     // Load fonts and textures for rain
-    for (int srn = 0; srn < ALPHABET_SIZE; srn++) //srn stands for some random number range from 0 to 62
-    {
-        surfacehead[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
-        texthead[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacehead[srn]);
+    for (int srn = 0; srn < ALPHABET_SIZE; srn++) {
+        rainSurfaces[srn].headf = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundheadf, backgroundheadf);
+        rainTextures[srn].headf = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].headf);
+        SDL_FreeSurface(rainSurfaces[srn].headf);
+        rainSurfaces[srn].headf = NULL;
 
-        surfaceheadf[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundheadf, backgroundheadf);
-        textheadf[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceheadf[srn]);
+        rainSurfaces[srn].head = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
+        rainTextures[srn].head = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].head);
+        SDL_FreeSurface(rainSurfaces[srn].head);
+        rainSurfaces[srn].head = NULL;
 
-        surfaceneck[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundneck, backgroundneck);
-        textneck[srn] = SDL_CreateTextureFromSurface(app.renderer, surfaceneck[srn]);
+        rainSurfaces[srn].neck = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundneck, backgroundneck);
+        rainTextures[srn].neck = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].neck);
+        SDL_FreeSurface(rainSurfaces[srn].neck);
+        rainSurfaces[srn].neck = NULL;
 
-        surfacebody[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody, backgroundbody);
-        textbody[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacebody[srn]);
+        rainSurfaces[srn].body = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody, backgroundbody);
+        rainTextures[srn].body = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].body);
+        SDL_FreeSurface(rainSurfaces[srn].body);
+        rainSurfaces[srn].body = NULL;
 
-        surfacetail[srn] = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundtail, backgroundtail);
-        texttail[srn] = SDL_CreateTextureFromSurface(app.renderer, surfacetail[srn]);
+        rainSurfaces[srn].tail = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundtail, backgroundtail);
+        rainTextures[srn].tail = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].tail);
+        SDL_FreeSurface(rainSurfaces[srn].tail);
+        rainSurfaces[srn].tail = NULL;
     }
 
-    surfaceempty = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
-    textempty = SDL_CreateTextureFromSurface(app.renderer, surfaceempty);
+    emptySurface = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
+    emptyTexture = SDL_CreateTextureFromSurface(app.renderer, emptySurface);
+    SDL_FreeSurface(emptySurface);
+    emptySurface = NULL;
 
     // Query the empty texture dimensions once
-    SDL_QueryTexture(textempty, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
+    SDL_QueryTexture(emptyTexture, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
 
     // enter app loop
     while (app.running) {
@@ -442,23 +468,21 @@ int spawn_rain(SDL_Rect** srain) {
     float randomSpeed;
     float sizeMultiplier;
 
-    float baseSpacing = 20.0f;  // Or your original spacing value (20)
-
     int spacing; // Spacing variable for segment distance
     if (dropType == 0) {  // Normal raindrop
     randomSpeed = 1.0f;                   // Base speed
     sizeMultiplier = 1.25f;               // Base size
-    spacing = (int)(baseSpacing * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
+    spacing = (int)(20.0f * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
 }
 else if (dropType == 1) {  // Faster raindrop
     randomSpeed = 2.0f;                   // 2x speed
     sizeMultiplier = 1.25f;               // Same size
-    spacing = (int)(baseSpacing * randomSpeed);  // 20 * 2.0f = 40
+    spacing = (int)(20.0f * randomSpeed);  // 20 * 2.0f = 40
 }
 else {  // Fastest raindrop
     randomSpeed = 3.0f;                   // 3x speed (avoid 4.0f unless you want extreme speed)
     sizeMultiplier = 1.75f;               // Same size
-    spacing = (int)(baseSpacing * randomSpeed);  // 20 * 3.0f = 60
+    spacing = (int)(20.0f * randomSpeed);  // 20 * 3.0f = 60
 }
     speed[randomIndex] = randomSpeed;
 
@@ -532,55 +556,55 @@ int move_rain(SDL_Rect** srain, int i) {
         // Render the raindrop based on the size and position
         if (speed[i] > 1.0f) {  // For faster raindrops
             if (n == 0) {  // Headf part
-                SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].headf, NULL, &srain[i][n]);
             }
             else if (n == 1) {  // Head part
-                SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].head, NULL, &srain[i][n]);
             }
             else if (n == 2) {  // Neck part
-                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].neck, NULL, &srain[i][n]);
             }
             else if (n == 3) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].body, NULL, &srain[i][n]);
             }
             else if (n == 4) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n == 5) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
             }
         }
 
         else {  // For normal raindrops
             if (n == 0) {  // Headf part
-                SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].headf, NULL, &srain[i][n]);
             }
             else if (n == 1) {  // Head part
-                SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].head, NULL, &srain[i][n]);
             }
             else if (n == 2) {  // Neck part
-                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].neck, NULL, &srain[i][n]);
             }
             else if (n == 3) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].body, NULL, &srain[i][n]);
             }
             else if (n == 4) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n == 5) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n == 6) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n == 7) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n == 8) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
             }
             else if (n >= 9) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
             }
         }
     }
