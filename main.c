@@ -12,13 +12,11 @@
 #define EXIT_FAILURE            1
 #define FONT_SIZE               24
 #define RAIN_WIDTH_HEIGHT       20
-#define CHAR_SPACING            12  //12 is okay, 20 is an option
-#define RAIN_START_Y            0
+#define CHAR_SPACING            12   //12 is okay, 20 is an option
+#define RAIN_START_Y            -30
 #define Increment               10   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
-#define DEFAULT_FPS             20
+#define DEFAULT_SIMULATION_STEP 10
 #define ALPHABET_SIZE           62
-
-const Uint32 frame_delay = 1000 / DEFAULT_FPS;
 
 int emptyTextureWidth, emptyTextureHeight;
 int* mn; // Pointer to hold the mn value dynamically allocated
@@ -178,6 +176,10 @@ int main(int argc, char* argv[])
     // Initialize SDL and the relevant structures
     initialize();
 
+    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP;  // Simulate 30 times per second (33.33ms per step)
+    float accumulator = 0.0f;
+    Uint32 previousTime = SDL_GetTicks();
+
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
 
     SDL_Color foregroundhead = { 0, 255, 128 };
@@ -235,8 +237,13 @@ int main(int argc, char* argv[])
     // enter app loop
     while (app.running) {
 
-        Uint32 start_time = SDL_GetTicks();  // Start of frame
+        // Calculate time elapsed this frame
+        Uint32 currentTime = SDL_GetTicks();
+        float frameTime = currentTime - previousTime;
+        previousTime = currentTime;
+        accumulator += frameTime;
 
+        // Handle SDL events (user inputs)
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) {
@@ -244,36 +251,33 @@ int main(int argc, char* argv[])
             }
         }
 
-        // Update raindrop logic
-        if (RANGE != 0 && DM.w > 0) {
-            int randomCount = (rand() % 100 < 50) ? 2 : 4; //50/50
-            for (int i = 0; i < randomCount; ++i) {
-                spawn_rain(srain);
+        // Fixed timestep simulation loop
+        while (accumulator >= SIMULATION_STEP) {
+
+            // Update raindrop logic in fixed intervals (30 times per second)
+            if (RANGE != 0 && DM.w > 0) {
+
+                // Randomly spawn new raindrops (2 or 4 per simulation step)
+                int randomCount = (rand() % 100 < 50) ? 2 : 4;  //50/50 chance
+                for (int i = 0; i < randomCount; ++i) {
+                    spawn_rain(srain);
+                }
+
+                // Move each raindrop by deltaTime
+                for (int x = 0; x < RANGE; ++x) {
+                    move_rain(srain, x);
+                }
             }
 
-            for (int x = 0; x < RANGE; ++x) {
-                move_rain(srain, x);
-            }
+            // Subtract simulation step from accumulator after processing
+            accumulator -= SIMULATION_STEP;
         }
 
-        // Render the frame
+        // Render the current frame
         SDL_RenderPresent(app.renderer);
 
-        // Calculate how long this frame took
-        Uint32 end_time = SDL_GetTicks();  // End of frame
-        Uint32 frame_time = end_time - start_time;  // Time taken for this frame
-
-        // Calculate how much time to delay to maintain the FPS
-        if (frame_time < frame_delay) {
-            Uint32 delay_time = frame_delay - frame_time;
-            SDL_Delay(delay_time);  // Delay for the remaining time
-        }
-
-        // Optionally, you can log if the frame rate drops below target FPS
-        if (frame_time > frame_delay) {
-            // For instance, you can skip the frame or log the issue
-            printf("Warning: Frame time exceeded target, skipping frame to maintain FPS.\n");
-        }
+        // Optional: Cap rendering to ~60 FPS
+        SDL_Delay(1000 / 60);
     }
 
     // make sure program cleans up on exit
@@ -437,22 +441,25 @@ int spawn_rain(SDL_Rect** srain) {
     // Randomize the speed for the raindrop and set size multiplier
     float randomSpeed;
     float sizeMultiplier;
+
+    float baseSpacing = 20.0f;  // Or your original spacing value (20)
+
     int spacing; // Spacing variable for segment distance
     if (dropType == 0) {  // Normal raindrop
-        randomSpeed = 1.0f;  // Default speed
-        sizeMultiplier = 1.25f;  // Normal size
-        spacing = 20;  // Normal spacing between segments
-    }
-    else if (dropType == 1) {  // Faster raindrop
-        randomSpeed = 2.0f;  // 2x speed
-        sizeMultiplier = 1.25f;  // 1.25x size
-        spacing = 40;  // Tighter spacing for faster drops
-    }
-    else {  // Fastest raindrop
-        randomSpeed = 4.0f;  // 4x speed
-        sizeMultiplier = 1.75f;  // 1.75x size
-        spacing = 80;  // Even tighter spacing for the fastest drops
-    }
+    randomSpeed = 1.0f;                   // Base speed
+    sizeMultiplier = 1.25f;               // Base size
+    spacing = (int)(baseSpacing * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
+}
+else if (dropType == 1) {  // Faster raindrop
+    randomSpeed = 2.0f;                   // 2x speed
+    sizeMultiplier = 1.25f;               // Same size
+    spacing = (int)(baseSpacing * randomSpeed);  // 20 * 2.0f = 40
+}
+else {  // Fastest raindrop
+    randomSpeed = 3.0f;                   // 3x speed (avoid 4.0f unless you want extreme speed)
+    sizeMultiplier = 1.75f;               // Same size
+    spacing = (int)(baseSpacing * randomSpeed);  // 20 * 3.0f = 60
+}
     speed[randomIndex] = randomSpeed;
 
     // Loop to add multiple parts to the "raindrop" (tail, body, etc.)
@@ -524,40 +531,26 @@ int move_rain(SDL_Rect** srain, int i) {
 
         // Render the raindrop based on the size and position
         if (speed[i] > 1.0f) {  // For faster raindrops
-            if (n == 0) {  // Head part
+            if (n == 0) {  // Headf part
                 SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 1) {  // Neck part
+            else if (n == 1) {  // Head part
                 SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 2) {  // Body part
+            else if (n == 2) {  // Neck part
+                SDL_RenderCopy(app.renderer, textneck[randomValues[n]], NULL, &srain[i][n]);
+            }
+            else if (n == 3) {  // Body part
                 SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 3) {  // Tail part
+            else if (n == 4) {  // Tail part
                 SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n >= 4) {  // Empty part
+            else if (n == 5) {  // Empty part
                 SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
             }
         }
-/*
-        else {  // For normal raindrops
-            if (n == 0) {  // Head part
-                SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
-            }
-            else if (n == 1) {  // Neck part
-                SDL_RenderCopy(app.renderer, texthead[randomValues[n]], NULL, &srain[i][n]);
-            }
-            else if (n == 2) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
-            }
-            else if (n == 3) {  // Tail part
-                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
-            }
-            else if (n >= 4) {  // Empty part
-                SDL_RenderCopy(app.renderer, textempty, NULL, &srain[i][n]);
-            }
-        }*/
+
         else {  // For normal raindrops
             if (n == 0) {  // Headf part
                 SDL_RenderCopy(app.renderer, textheadf[randomValues[n]], NULL, &srain[i][n]);
@@ -571,17 +564,17 @@ int move_rain(SDL_Rect** srain, int i) {
             else if (n == 3) {  // Body part
                 SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 4) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+            else if (n == 4) {  // Tail part
+                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 5) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+            else if (n == 5) {  // Tail part
+                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
-            else if (n == 6) {  // Body part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+            else if (n == 6) {  // Tail part
+                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 7) {  // Tail part
-                SDL_RenderCopy(app.renderer, textbody[randomValues[n]], NULL, &srain[i][n]);
+                SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
             }
             else if (n == 8) {  // Tail part
                 SDL_RenderCopy(app.renderer, texttail[randomValues[n]], NULL, &srain[i][n]);
