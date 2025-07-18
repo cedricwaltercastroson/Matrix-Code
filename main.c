@@ -239,7 +239,7 @@ int main(int argc, char* argv[])
 
         // Calculate time elapsed this frame
         Uint32 currentTime = SDL_GetTicks();
-        float frameTime = currentTime - previousTime;
+        float frameTime = (float)(currentTime - previousTime);
         previousTime = currentTime;
         accumulator += frameTime;
 
