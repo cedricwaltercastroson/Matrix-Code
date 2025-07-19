@@ -22,9 +22,11 @@ int emptyTextureWidth, emptyTextureHeight;
 int* mn; // Pointer to hold the mn value dynamically allocated
 int RANGE = 0; // Global declare required for initialize() function
 int* isActive = NULL;  // Pointer to dynamically allocated array tracking active raindrops
+int** glyphTrail;  // Each active raindrop's glyph trail
 
 // Declare a pointer for the speed array
 float* speed;
+float* scales = NULL;
 
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
@@ -63,7 +65,6 @@ typedef struct {
     SDL_Renderer* renderer;
     SDL_Window* window;
     int running;
-    int dx;
     int dy;
 } SDL2APP;
 
@@ -71,16 +72,7 @@ typedef struct {
 // and SDL renderer for use in all functions
 SDL2APP app = {
   .running = 1,
-  .dx = RAIN_WIDTH_HEIGHT,
   .dy = RAIN_WIDTH_HEIGHT,
-};
-
-// Rename the static SDL_Rect structure to avoid conflicts
-SDL_Rect initial_srain = {
-    .w = 0,
-    .h = 0,
-    .x = 0,
-    .y = 0
 };
 
 // Declare a pointer to an array of pointers to SDL_Rect for dynamic allocation
@@ -176,6 +168,14 @@ void cleanupMemory() {
     // Free the dynamically allocated memory for speed
     free(speed);
 
+    free(scales);
+    scales = NULL;
+
+    for (int i = 0; i < RANGE; i++) {
+        free(glyphTrail[i]);
+    }
+    free(glyphTrail);
+
     // Free memory for srain array and its subarrays
     for (int i = 0; i < RANGE; i++) {
         free(srain[i]);
@@ -209,6 +209,21 @@ int main(int argc, char* argv[])
     SDL_Color backgroundtail = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
+
+    // Allocate memory for glyphTrail
+    glyphTrail = (int**)calloc(RANGE, sizeof(int*));
+    if (glyphTrail == NULL) {
+        printf("error: memory allocation failed for glyphTrail.\n");
+        terminate(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < RANGE; i++) {
+        glyphTrail[i] = (int*)calloc(Increment, sizeof(int));  // Allocate Increment-sized trail
+        if (glyphTrail[i] == NULL) {
+            printf("error: memory allocation failed for glyphTrail[%d].\n", i);
+            terminate(EXIT_FAILURE);
+        }
+    }
 
     // Clear and allocate memory for srain based on the size of mn
     srain = (SDL_Rect**)calloc(RANGE, sizeof(SDL_Rect*));
@@ -347,13 +362,19 @@ void initialize()
         exit(1);
     }
 
+    scales = (float*)malloc(RANGE * sizeof(float));
+    if (scales == NULL) {
+        printf("Memory allocation failed for scales array.\n");
+        terminate(EXIT_FAILURE);
+    }
+
     // create the app window
     app.window = SDL_CreateWindow("Matrix-Code",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
-        SDL_WINDOW_SHOWN
+        SDL_WINDOW_HIDDEN  // Window hidden until ready
     );
 
     SDL_SetWindowFullscreen(app.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -367,6 +388,10 @@ void initialize()
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
     app.renderer = SDL_CreateRenderer(app.window, 0, SDL_RENDERER_ACCELERATED);
+    SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);  // Set background to black
+    SDL_RenderClear(app.renderer);
+    SDL_RenderPresent(app.renderer);
+    SDL_ShowWindow(app.window);
 
     if (!app.renderer)
     {
@@ -443,10 +468,14 @@ int spawn_rain(SDL_Rect** srain) {
         return -1;
     }
 
+    // Initialize glyphTrail with random glyphs
+    for (int i = 0; i < RANGE; i++) {
+        for (int t = 0; t < Increment; t++) {
+            glyphTrail[i][t] = rand() % ALPHABET_SIZE;
+        }
+    }
+
     // Determine if the raindrop will be normal, faster, or fastest
-
-    //int dropType = (rand() % 100 < 75) ? 0 : (rand() % 100 < 90) ? 1 : 2;
-
     int dropType = rand() % 3;  // 0 = normal, 1 = faster, 2 = fastest
 
     // Use generateUniqueRandomNumber to get a unique X-coordinate
@@ -470,20 +499,23 @@ int spawn_rain(SDL_Rect** srain) {
 
     int spacing; // Spacing variable for segment distance
     if (dropType == 0) {  // Normal raindrop
-    randomSpeed = 1.0f;                   // Base speed
-    sizeMultiplier = 1.25f;               // Base size
-    spacing = (int)(20.0f * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
-}
-else if (dropType == 1) {  // Faster raindrop
-    randomSpeed = 2.0f;                   // 2x speed
-    sizeMultiplier = 1.25f;               // Same size
-    spacing = (int)(20.0f * randomSpeed);  // 20 * 2.0f = 40
-}
-else {  // Fastest raindrop
-    randomSpeed = 3.0f;                   // 3x speed (avoid 4.0f unless you want extreme speed)
-    sizeMultiplier = 1.75f;               // Same size
-    spacing = (int)(20.0f * randomSpeed);  // 20 * 3.0f = 60
-}
+        randomSpeed = 1.0f;                   // Base speed
+        sizeMultiplier = 1.25f;               // Base size
+        spacing = (int)(20.0f * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
+        scales[randomIndex] = 1.125f;         // scale for normal raindrop
+    }
+    else if (dropType == 1) {  // Faster raindrop
+        randomSpeed = 2.0f;                   // 2x speed
+        sizeMultiplier = 1.25f;               // Same size
+        spacing = (int)(20.0f * randomSpeed);  // 20 * 2.0f = 40
+        scales[randomIndex] = 1.25f;          // scale for faster raindrop
+    }
+    else {  // Fastest raindrop
+        randomSpeed = 3.0f;                   // 3x speed (avoid 4.0f unless you want extreme speed)
+        sizeMultiplier = 1.75f;               // Same size
+        spacing = (int)(20.0f * randomSpeed);  // 20 * 3.0f = 60
+        scales[randomIndex] = 1.5f;           // scale for fastest raindrop
+    }
     speed[randomIndex] = randomSpeed;
 
     // Loop to add multiple parts to the "raindrop" (tail, body, etc.)
@@ -512,107 +544,86 @@ else {  // Fastest raindrop
 }
 
 int move_rain(SDL_Rect** srain, int i) {
-    int randomValues[Increment];
+    // If this raindrop is inactive, skip processing
+    if (!isActive[i]) return i;
 
-    // Randomize the textures for each part of the raindrop
-    for (int n = 0; n < Increment; ++n) {
-        randomValues[n] = rand() % ALPHABET_SIZE;
-    }
-
-    // Base movement (app.dy * speed[i]) for the raindrop
+    // Calculate movement speed for this raindrop (base speed * multiplier)
     float movement = app.dy * speed[i];
 
-    // Adjust each raindrop part’s y position based on the movement
+    // Update position and size of each segment in the raindrop
     for (int n = 0; n < Increment; ++n) {
-        // Apply movement to each part (increase y for downward movement)
-        srain[i][n].y += (int)(movement);  // Apply movement to the y-coordinate of each part
+        // Move each segment downward by movement amount
+        srain[i][n].y += (int)(movement);
 
-        // Check if the current part is off the screen
-        if (srain[i][n].y >= DM.h) {
-            // If this part is offscreen, do not render it
-            continue;
-        }
+        float scale = scales[i];  // Use precomputed scale
 
-        // Adjust the size of the raindrop based on its speed
-        float scale = 1.125f;  // Default scale for normal raindrops
+        // Calculate scaled width and height
+        srain[i][n].w = (int)(emptyTextureWidth * scale);
+        srain[i][n].h = (int)(emptyTextureHeight * scale);
+    }
 
-        if (speed[i] > 1.0f && speed[i] <= 2.0f) {
-            // Slightly larger size for moderately faster raindrops
-            scale = 1.25f;  // 1.125x size for moderate speed
-        }
-        else if (speed[i] > 2.0f) {
-            // Even larger size for very fast raindrops
-            scale = 1.5f;  // 1.25x size for very fast drops
-        }
+    // Shift glyphs down the trail (from tail to head)
+    for (int t = Increment - 1; t > 0; t--) {
+        glyphTrail[i][t] = glyphTrail[i][t - 1];  // copy previous glyph down the trail
+    }
 
-        // Adjust the width and height based on the scale factor
-        int scaledWidth = (int)(emptyTextureWidth * scale);
-        int scaledHeight = (int)(emptyTextureHeight * scale);
+    // Generate a new random glyph only for the head (top of the trail)
+    int newGlyph;
+    bool unique;
 
-        // Set the scaled width and height for each raindrop part
-        srain[i][n].w = scaledWidth;
-        srain[i][n].h = scaledHeight;
-
-        // Render the raindrop based on the size and position
-        if (speed[i] > 1.0f) {  // For faster raindrops
-            if (n == 0) {  // Headf part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].headf, NULL, &srain[i][n]);
-            }
-            else if (n == 1) {  // Head part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].head, NULL, &srain[i][n]);
-            }
-            else if (n == 2) {  // Neck part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].neck, NULL, &srain[i][n]);
-            }
-            else if (n == 3) {  // Body part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].body, NULL, &srain[i][n]);
-            }
-            else if (n == 4) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n == 5) {  // Empty part
-                SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
+    do {
+        newGlyph = rand() % ALPHABET_SIZE;
+        unique = true;
+        // Check last 5 glyphs to avoid repeats
+        for (int t = 1; t <= 5 && t < Increment; t++) {
+            if (glyphTrail[i][t] == newGlyph) {
+                unique = false;
+                break;
             }
         }
+    } while (!unique);
 
-        else {  // For normal raindrops
-            if (n == 0) {  // Headf part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].headf, NULL, &srain[i][n]);
-            }
-            else if (n == 1) {  // Head part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].head, NULL, &srain[i][n]);
-            }
-            else if (n == 2) {  // Neck part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].neck, NULL, &srain[i][n]);
-            }
-            else if (n == 3) {  // Body part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].body, NULL, &srain[i][n]);
-            }
-            else if (n == 4) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n == 5) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n == 6) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n == 7) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n == 8) {  // Tail part
-                SDL_RenderCopy(app.renderer, rainTextures[randomValues[n]].tail, NULL, &srain[i][n]);
-            }
-            else if (n >= 9) {  // Empty part
-                SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
-            }
+    glyphTrail[i][0] = newGlyph;
+
+    // Render each segment using the glyph stored in glyphTrail[i][n]
+    for (int n = 0; n < Increment; ++n) {
+        int glyphIndex = glyphTrail[i][n];
+
+        if (glyphIndex < 0 || glyphIndex >= ALPHABET_SIZE) {
+            printf("Warning: invalid glyphIndex %d at raindrop %d, segment %d\n", glyphIndex, i, n);
+            glyphIndex = 0;
+        }
+
+        if (n == 0) {
+            // Render the headf (brightest head glyph)
+            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].headf, NULL, &srain[i][n]);
+        }
+        else if (n == 1) {
+            // Render the head (slightly less bright than headf)
+            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].head, NULL, &srain[i][n]);
+        }
+        else if (n == 2) {
+            // Render the neck segment
+            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].neck, NULL, &srain[i][n]);
+        }
+        else if (n == 3) {
+            // Render the body segment
+            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].body, NULL, &srain[i][n]);
+        }
+        else if (n == 4) {
+            // Render the tail segment
+            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].tail, NULL, &srain[i][n]);
+        }
+        else {
+            // Render empty texture for segments beyond tail
+            SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
         }
     }
 
-    // After rendering, check if the raindrop has completely moved offscreen (the tail part)
+    // Check if the raindrop's tail has moved offscreen
     if (srain[i][Increment - 1].y >= DM.h) {
-        // Mark the raindrop as inactive once it reaches the bottom
-        isActive[i] = 0;  // 0 means inactive
+        // Mark this raindrop as inactive to allow respawning
+        isActive[i] = 0;
     }
 
     return i;
