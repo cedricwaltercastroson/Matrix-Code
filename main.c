@@ -8,11 +8,11 @@
 
 #define FONT_SIZE                   24
 #define CHAR_SPACING                12
-#define RAIN_START_Y                -20
+#define glyph_START_Y               -20
 #define Increment                   30
 #define DEFAULT_SIMULATION_STEP     30
 #define ALPHABET_SIZE               62
-#define FadeTime                    0.015f
+#define FadeTime                    0.01f
 
 // Global Variables
 int* mn;
@@ -42,9 +42,9 @@ int* trailCapacities = NULL;
 
 typedef struct {
     SDL_Texture* head;
-} RainTextures;
+} glyphTextures;
 
-RainTextures rainTextures[ALPHABET_SIZE] = { 0 };
+glyphTextures gTextures[ALPHABET_SIZE] = { 0 };
 SDL_Texture* emptyTexture = NULL;
 
 typedef struct {
@@ -55,7 +55,7 @@ typedef struct {
 } SDL2APP;
 
 SDL2APP app = { .running = 1, .dy = 20 };
-SDL_Rect** srain = NULL;
+SDL_Rect** glyph = NULL;
 SDL_DisplayMode DM = { .w = 0, .h = 0 };
 
 const char* alphabet[ALPHABET_SIZE] = {
@@ -69,13 +69,13 @@ const char* alphabet[ALPHABET_SIZE] = {
 };
 
 // Function Declarations
-void render_rain_trails(void);
+void render_glyph_trails(void);
 void initialize(void);
 void terminate(int exit_code);
 void cleanupMemory(void);
 void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead);
-int spawn_rain(SDL_Rect** srain);
-int move_rain(SDL_Rect** srain, int i);
+int spawn(SDL_Rect** glyph);
+int move(SDL_Rect** glyph, int i);
 
 SDL_Texture* createTextTexture(const char* text, SDL_Color fg, SDL_Color bg) {
     SDL_Surface* surface = TTF_RenderText_Shaded(font1, text, fg, bg);
@@ -90,13 +90,13 @@ void cleanupMemory() {
     free(speed);
     free(isActive);
     if (glyphTrail) { for (int i = 0; i < RANGE; i++) free(glyphTrail[i]); free(glyphTrail); }
-    if (srain) { for (int i = 0; i < RANGE; i++) free(srain[i]); free(srain); }
+    if (glyph) { for (int i = 0; i < RANGE; i++) free(glyph[i]); free(glyph); }
     if (fadingTrails) { for (int i = 0; i < RANGE; i++) free(fadingTrails[i]); free(fadingTrails); }
     free(trailCapacities);
     free(trailCounts);
     free(columnOccupied);
     free(freeIndexList);
-    for (int i = 0; i < ALPHABET_SIZE; i++) SDL_DestroyTexture(rainTextures[i].head);
+    for (int i = 0; i < ALPHABET_SIZE; i++) SDL_DestroyTexture(gTextures[i].head);
     SDL_DestroyTexture(emptyTexture);
 }
 
@@ -113,7 +113,7 @@ void terminate(int exit_code) {
     exit(exit_code);
 }
 
-void render_rain_trails() {
+void render_glyph_trails() {
     for (int col = 0; col < RANGE; col++) {
         int count = trailCounts[col];
         int writeIndex = 0;
@@ -122,7 +122,7 @@ void render_rain_trails() {
             glyph->fadeTimer -= FadeTime;
             if (glyph->fadeTimer > 0.0f) {
                 float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;
-                SDL_Texture* texture = rainTextures[glyph->glyphIndex].head;
+                SDL_Texture* texture = gTextures[glyph->glyphIndex].head;
                 if (glyph->isHead) {
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
                     SDL_SetRenderDrawColor(app.renderer, 0, 255, 0, 80);
@@ -159,7 +159,7 @@ void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float init
     glyph->isHead = isHead;
 }
 
-int spawn_rain(SDL_Rect** srain) {
+int spawn(SDL_Rect** glyph) {
     if (freeIndexCount <= 0) return -1;
     int randPos = rand() % freeIndexCount;
     int randomIndex = freeIndexList[randPos];
@@ -168,27 +168,27 @@ int spawn_rain(SDL_Rect** srain) {
     int spawnX = mn[randomIndex];
     int columnIndex = spawnX / CHAR_SPACING;
     columnOccupied[columnIndex] = 1;
-    srain[randomIndex][0].x = spawnX;
-    srain[randomIndex][0].y = RAIN_START_Y;
+    glyph[randomIndex][0].x = spawnX;
+    glyph[randomIndex][0].y = glyph_START_Y;
     int glyphHeight = emptyTextureHeight;
     speed[randomIndex] = 1.0f + (rand() % 2) * 0.5f;
     for (int t = 0; t < Increment; t++) {
-        srain[randomIndex][t].x = spawnX;
-        srain[randomIndex][t].y = RAIN_START_Y - (t * glyphHeight);
-        srain[randomIndex][t].w = emptyTextureWidth;
-        srain[randomIndex][t].h = emptyTextureHeight;
+        glyph[randomIndex][t].x = spawnX;
+        glyph[randomIndex][t].y = glyph_START_Y - (t * glyphHeight);
+        glyph[randomIndex][t].w = emptyTextureWidth;
+        glyph[randomIndex][t].h = emptyTextureHeight;
     }
     isActive[randomIndex] = 1;
     return randomIndex;
 }
 
-int move_rain(SDL_Rect** srain, int i) {
+int move(SDL_Rect** glyph, int i) {
     if (i < 0 || i >= RANGE) return i;
-    if (!srain || !srain[i] || !glyphTrail || !glyphTrail[i]) return i;
+    if (!glyph || !glyph[i] || !glyphTrail || !glyphTrail[i]) return i;
     if (!isActive[i]) return i;
     float movement = app.dy * speed[i];
     for (int n = 0; n < Increment; n++)
-        srain[i][n].y += (int)movement;
+        glyph[i][n].y += (int)movement;
     for (int n = Increment - 1; n > 0; n--)
         glyphTrail[i][n] = glyphTrail[i][n - 1];
     int newGlyph;
@@ -196,11 +196,11 @@ int move_rain(SDL_Rect** srain, int i) {
         newGlyph = rand() % ALPHABET_SIZE;
     } while (newGlyph == glyphTrail[i][1]);
     glyphTrail[i][0] = newGlyph;
-    int columnIndex = srain[i][0].x / CHAR_SPACING;
+    int columnIndex = glyph[i][0].x / CHAR_SPACING;
     if (columnIndex < 0) columnIndex = 0;
     else if (columnIndex >= RANGE) columnIndex = RANGE - 1;
-    spawnStaticGlyph(columnIndex, glyphTrail[i][0], srain[i][0], 1.0f, true);
-    if (srain[i][Increment - 1].y >= DM.h) {
+    spawnStaticGlyph(columnIndex, glyphTrail[i][0], glyph[i][0], 1.0f, true);
+    if (glyph[i][Increment - 1].y >= DM.h) {
         isActive[i] = 0;
         for (int t = 0; t < Increment; t++) glyphTrail[i][t] = -1;
         columnOccupied[columnIndex] = 0;
@@ -236,17 +236,18 @@ void initialize() {
         fadingTrails[i] = malloc(256 * sizeof(StaticGlyph));
     }
     freeIndexCount = RANGE;
-    app.window = SDL_CreateWindow("Matrix Rain", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DM.w, DM.h, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    app.window = SDL_CreateWindow("Matrix glyph", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DM.w, DM.h, SDL_WINDOW_FULLSCREEN_DESKTOP);
     app.renderer = SDL_CreateRenderer(app.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_ShowCursor(SDL_DISABLE);
     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
-    srain = calloc(RANGE, sizeof(SDL_Rect*));
-    for (int i = 0; i < RANGE; i++) srain[i] = calloc(Increment + 1, sizeof(SDL_Rect));
+    glyph = calloc(RANGE, sizeof(SDL_Rect*));
+    for (int i = 0; i < RANGE; i++) glyph[i] = calloc(Increment + 1, sizeof(SDL_Rect));
     glyphTrail = calloc(RANGE, sizeof(int*));
     for (int i = 0; i < RANGE; i++) glyphTrail[i] = calloc(Increment, sizeof(int));
     SDL_Color fg = { 255, 255, 255, 255 }, bg = { 0, 0, 0, 255 };
     for (int i = 0; i < ALPHABET_SIZE; i++)
-        rainTextures[i].head = createTextTexture(alphabet[i], fg, bg);
+        gTextures[i].head = createTextTexture(alphabet[i], fg, bg);
     SDL_Surface* surf = TTF_RenderText_Shaded(font1, " ", bg, bg);
     emptyTexture = SDL_CreateTextureFromSurface(app.renderer, surf);
     SDL_FreeSurface(surf);
@@ -272,13 +273,13 @@ int main(int argc, char* argv[]) {
         }
         while (accumulator >= SIMULATION_STEP) {
             int spawnCount = (rand() % 100 < 50) ? 2 : 4;
-            for (int i = 0; i < spawnCount; i++) spawn_rain(srain);
-            for (int i = 0; i < RANGE; i++) move_rain(srain, i);
+            for (int i = 0; i < spawnCount; i++) spawn(glyph);
+            for (int i = 0; i < RANGE; i++) move(glyph, i);
             accumulator -= SIMULATION_STEP;
         }
         SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
         SDL_RenderClear(app.renderer);
-        render_rain_trails();
+        render_glyph_trails();
         SDL_RenderPresent(app.renderer);
         SDL_Delay(1000 / 60);
     }
