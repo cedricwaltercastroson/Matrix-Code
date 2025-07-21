@@ -171,7 +171,7 @@ int spawn(SDL_Rect** glyph) {
     glyph[randomIndex][0].x = spawnX;
     glyph[randomIndex][0].y = glyph_START_Y;
     int glyphHeight = emptyTextureHeight;
-    speed[randomIndex] = 1.0f + (rand() % 2) * 0.5f;
+    speed[randomIndex] = 1.0f + (rand() % 3) * 0.25f;
     for (int t = 0; t < Increment; t++) {
         glyph[randomIndex][t].x = spawnX;
         glyph[randomIndex][t].y = glyph_START_Y - (t * glyphHeight);
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
                 app.running = 0;
         }
         while (accumulator >= SIMULATION_STEP) {
-            int spawnCount = (rand() % 100 < 50) ? 2 : 4;
+            int spawnCount = (rand() % 100 < 50) ? 1 : 3;
             for (int i = 0; i < spawnCount; i++) spawn(glyph);
             for (int i = 0; i < RANGE; i++) move(glyph, i);
             accumulator -= SIMULATION_STEP;
