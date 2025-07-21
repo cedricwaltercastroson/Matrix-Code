@@ -8,56 +8,58 @@
 #include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
-#define EXIT_SUCCESS            0
-#define EXIT_FAILURE            1
-#define FONT_SIZE               24
-#define RAIN_WIDTH_HEIGHT       20
-#define CHAR_SPACING            12   //12 is okay, 20 is an option
-#define RAIN_START_Y            -30
-#define Increment               10   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
-#define DEFAULT_SIMULATION_STEP 15
-#define ALPHABET_SIZE           62
+#define EXIT_SUCCESS                    0
+#define EXIT_FAILURE                    1
+#define FONT_SIZE                       24
+#define RAIN_WIDTH_HEIGHT               20
+#define CHAR_SPACING                    12   //12 is okay, 20 is an option
+#define RAIN_START_Y                    -20
+#define Increment                       30   //tailbody effect remember to also add 'increment + 1' which is n+1 due to the array null terminator
+#define DEFAULT_SIMULATION_STEP         30
+#define ALPHABET_SIZE                   62
+#define FadeTime                        0.015f
+#define MAX_STATIC_GLYPHS_PER_COLUMN    256
+#define MAX_TRAIL_CAPACITY              512
 
 int emptyTextureWidth, emptyTextureHeight;
 int* mn; // Pointer to hold the mn value dynamically allocated
 int RANGE = 0; // Global declare required for initialize() function
 int* isActive = NULL;  // Pointer to dynamically allocated array tracking active raindrops
 int** glyphTrail;  // Each active raindrop's glyph trail
+int* columnOccupied = NULL;
+int* freeIndexList = NULL;
+int freeIndexCount = 0;
 
 // Declare a pointer for the speed array
 float* speed;
-float* scales = NULL;
 
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 
 typedef struct {
-    SDL_Surface* headf;
-    SDL_Surface* head;
-    SDL_Surface* neck;
-    SDL_Surface* body;
-    SDL_Surface* tail;
-    SDL_Surface* empty;
-} RainSurfaces;
+    int glyphIndex;      // Which glyph to render (from alphabet)
+    float fadeTimer;     // 1.0 = fully bright, 0.0 = faded out
+    SDL_Rect rect;       // Screen position and size
+    bool isHead;         // Is this glyph the trail's head (white glow)?
+} StaticGlyph;
+
+StaticGlyph** fadingTrails = NULL;  // One list per X column
+
+int* trailCounts = NULL;            // Number of active static glyphs in each column
+int* trailCapacities;  // new array to track capacity
 
 typedef struct {
-    SDL_Texture* headf;
     SDL_Texture* head;
-    SDL_Texture* neck;
-    SDL_Texture* body;
-    SDL_Texture* tail;
-    SDL_Texture* empty;
 } RainTextures;
 
-RainSurfaces rainSurfaces[ALPHABET_SIZE] = { 0 };
 RainTextures rainTextures[ALPHABET_SIZE] = { 0 };
-SDL_Surface* emptySurface = NULL;
 SDL_Texture* emptyTexture = NULL;
 
+void render_rain_trails();
 void initialize(void);
 void terminate(int exit_code);
 int generateUniqueRandomNumber(int range);
-
+void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead);
 int spawn_rain(SDL_Rect** srain);
 int move_rain(SDL_Rect** srain, int i);
 
@@ -107,19 +109,6 @@ SDL_Texture* createTextTexture(const char* text, SDL_Color fg, SDL_Color bg) {
     return texture;
 }
 
-// Function to free textures
-void freeRainTextures(RainTextures* rainTextures) {
-    for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
-        SDL_DestroyTexture(rainTextures[srnclean].headf);
-        SDL_DestroyTexture(rainTextures[srnclean].head);
-        SDL_DestroyTexture(rainTextures[srnclean].neck);
-        SDL_DestroyTexture(rainTextures[srnclean].body);
-        SDL_DestroyTexture(rainTextures[srnclean].tail);
-    }
-
-    SDL_DestroyTexture(emptyTexture);
-}
-
 int generateUniqueRandomNumber(int range) {
     static int* uniqueNumbers = NULL;
     static int currentIndex = 0;
@@ -162,28 +151,49 @@ int generateUniqueRandomNumber(int range) {
 
 // Function to free dynamically allocated memory
 void cleanupMemory() {
-    // Free the dynamically allocated memory for mn array
+    // Free mn array
     free(mn);
 
-    // Free the dynamically allocated memory for speed
+    // Free rain speeds, scales, isActive
     free(speed);
+    free(isActive);
 
-    free(scales);
-    scales = NULL;
-
-    for (int i = 0; i < RANGE; i++) {
-        free(glyphTrail[i]);
+    // Free glyphTrail
+    if (glyphTrail) {
+        for (int i = 0; i < RANGE; i++) {
+            free(glyphTrail[i]);
+        }
+        free(glyphTrail);
     }
-    free(glyphTrail);
 
-    // Free memory for srain array and its subarrays
-    for (int i = 0; i < RANGE; i++) {
-        free(srain[i]);
+    // Free srain
+    if (srain) {
+        for (int i = 0; i < RANGE; i++) {
+            free(srain[i]);
+        }
+        free(srain);
     }
-    free(srain);
 
-    // Free textures
-    freeRainTextures(rainTextures);
+    // Free static fading trails
+    if (fadingTrails) {
+        for (int col = 0; col < RANGE; col++) {
+            free(fadingTrails[col]);
+        }
+        free(fadingTrails);
+        free(trailCapacities);
+        free(trailCounts);
+    }
+
+    free(columnOccupied);
+
+    free(freeIndexList);
+
+    // Destroy rain textures directly
+    for (int srnclean = 0; srnclean < ALPHABET_SIZE; srnclean++) {
+        SDL_DestroyTexture(rainTextures[srnclean].head);
+    }
+
+    SDL_DestroyTexture(emptyTexture);
 }
 
 int main(int argc, char* argv[])
@@ -196,17 +206,13 @@ int main(int argc, char* argv[])
     Uint32 previousTime = SDL_GetTicks();
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
+    if (!font1) {
+        printf("Error loading font: %s\n", TTF_GetError());
+        terminate(EXIT_FAILURE);
+    }
 
-    SDL_Color foregroundhead = { 0, 255, 128 };
+    SDL_Color foregroundhead = { 255, 255, 255 };
     SDL_Color backgroundhead = { 0, 0, 0 };
-    SDL_Color foregroundheadf = { 255, 255, 255 };
-    SDL_Color backgroundheadf = { 0, 0, 0 };
-    SDL_Color foregroundneck = { 0, 180, 80 };
-    SDL_Color backgroundneck = { 0, 0, 0 };
-    SDL_Color foregroundbody = { 0, 102, 32 };
-    SDL_Color backgroundbody = { 0, 0, 0 };
-    SDL_Color foregroundtail = { 0, 48, 0 };
-    SDL_Color backgroundtail = { 0, 0, 0 };
     SDL_Color foregroundempty = { 0, 0, 0 };
     SDL_Color backgroundempty = { 0, 0, 0 };
 
@@ -225,52 +231,16 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Clear and allocate memory for srain based on the size of mn
-    srain = (SDL_Rect**)calloc(RANGE, sizeof(SDL_Rect*));
-    if (srain == NULL) {
-        printf("error: memory allocation failed for srain array.\n");
-        terminate(EXIT_FAILURE);
-    }
-    for (int i = 0; i < RANGE; i++) {
-        srain[i] = (SDL_Rect*)calloc(Increment + 1, sizeof(SDL_Rect));
-        if (srain[i] == NULL) {
-            printf("error: memory allocation failed for srain subarray %d.\n", i);
-            terminate(EXIT_FAILURE);
-        }
-    }
-
-    // Load fonts and textures for rain
+    // Load font and texture for rain
     for (int srn = 0; srn < ALPHABET_SIZE; srn++) {
-        rainSurfaces[srn].headf = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundheadf, backgroundheadf);
-        rainTextures[srn].headf = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].headf);
-        SDL_FreeSurface(rainSurfaces[srn].headf);
-        rainSurfaces[srn].headf = NULL;
-
-        rainSurfaces[srn].head = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
-        rainTextures[srn].head = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].head);
-        SDL_FreeSurface(rainSurfaces[srn].head);
-        rainSurfaces[srn].head = NULL;
-
-        rainSurfaces[srn].neck = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundneck, backgroundneck);
-        rainTextures[srn].neck = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].neck);
-        SDL_FreeSurface(rainSurfaces[srn].neck);
-        rainSurfaces[srn].neck = NULL;
-
-        rainSurfaces[srn].body = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundbody, backgroundbody);
-        rainTextures[srn].body = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].body);
-        SDL_FreeSurface(rainSurfaces[srn].body);
-        rainSurfaces[srn].body = NULL;
-
-        rainSurfaces[srn].tail = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundtail, backgroundtail);
-        rainTextures[srn].tail = SDL_CreateTextureFromSurface(app.renderer, rainSurfaces[srn].tail);
-        SDL_FreeSurface(rainSurfaces[srn].tail);
-        rainSurfaces[srn].tail = NULL;
+        SDL_Surface* surface = TTF_RenderText_Shaded(font1, alphabet[srn], foregroundhead, backgroundhead);
+        rainTextures[srn].head = SDL_CreateTextureFromSurface(app.renderer, surface);
+        SDL_FreeSurface(surface);
     }
 
-    emptySurface = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
-    emptyTexture = SDL_CreateTextureFromSurface(app.renderer, emptySurface);
-    SDL_FreeSurface(emptySurface);
-    emptySurface = NULL;
+    SDL_Surface* surface = TTF_RenderText_Shaded(font1, " ", foregroundempty, backgroundempty);
+    emptyTexture = SDL_CreateTextureFromSurface(app.renderer, surface);
+    SDL_FreeSurface(surface);
 
     // Query the empty texture dimensions once
     SDL_QueryTexture(emptyTexture, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
@@ -294,17 +264,14 @@ int main(int argc, char* argv[])
 
         // Fixed timestep simulation loop
         while (accumulator >= SIMULATION_STEP) {
-
-            // Update raindrop logic in fixed intervals (30 times per second)
             if (RANGE != 0 && DM.w > 0) {
 
                 // Randomly spawn new raindrops (2 or 4 per simulation step)
-                int randomCount = (rand() % 100 < 50) ? 2 : 4;  //50/50 chance
+                int randomCount = (rand() % 100 < 50) ? 2 : 4;
                 for (int i = 0; i < randomCount; ++i) {
                     spawn_rain(srain);
                 }
 
-                // Move each raindrop by deltaTime
                 for (int x = 0; x < RANGE; ++x) {
                     move_rain(srain, x);
                 }
@@ -313,6 +280,12 @@ int main(int argc, char* argv[])
             // Subtract simulation step from accumulator after processing
             accumulator -= SIMULATION_STEP;
         }
+
+        // === Rendering begins ===
+        SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
+        SDL_RenderClear(app.renderer);
+
+        render_rain_trails();    // Draws fading static trails and handles fading logic
 
         // Render the current frame
         SDL_RenderPresent(app.renderer);
@@ -327,7 +300,6 @@ int main(int argc, char* argv[])
 
 void initialize()
 {
-
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
     {
         printf("error: failed to initialize SDL: %s\n", SDL_GetError());
@@ -340,6 +312,55 @@ void initialize()
 
     // Calculate the value of RANGE
     RANGE = DM.w / CHAR_SPACING;
+
+    // Allocate srain
+    srain = (SDL_Rect**)calloc(RANGE, sizeof(SDL_Rect*));
+    if (srain == NULL) {
+        printf("error: memory allocation failed for srain array.\n");
+        terminate(EXIT_FAILURE);
+    }
+    for (int i = 0; i < RANGE; i++) {
+        srain[i] = (SDL_Rect*)calloc(Increment + 1, sizeof(SDL_Rect));
+        if (srain[i] == NULL) {
+            printf("error: memory allocation failed for srain subarray %d.\n", i);
+            terminate(EXIT_FAILURE);
+        }
+    }
+
+    // Allocate fading trails
+    // Allocate fading trails pointers
+    fadingTrails = (StaticGlyph**)calloc(RANGE, sizeof(StaticGlyph*));
+    trailCounts = (int*)calloc(RANGE, sizeof(int));
+    trailCapacities = (int*)calloc(RANGE, sizeof(int));
+
+    if (!fadingTrails || !trailCounts || !trailCapacities) {
+        printf("error: memory allocation failed for fading trails.\n");
+        terminate(EXIT_FAILURE);
+    }
+
+    // Pre-allocate full capacity per column:
+    for (int col = 0; col < RANGE; col++) {
+        fadingTrails[col] = (StaticGlyph*)malloc(MAX_TRAIL_CAPACITY * sizeof(StaticGlyph));
+        if (!fadingTrails[col]) {
+            printf("error: memory allocation failed for fadingTrails[%d].\n", col);
+            terminate(EXIT_FAILURE);
+        }
+        trailCapacities[col] = MAX_TRAIL_CAPACITY;
+        trailCounts[col] = 0;  // start with zero glyphs
+    }
+
+    columnOccupied = (int*)calloc(RANGE, sizeof(int));  // Zero = free, 1 = occupied
+    if (columnOccupied == NULL) {
+        printf("error: memory allocation failed for columnOccupied.\n");
+        terminate(EXIT_FAILURE);
+    }
+
+    // Initialize freeIndexList:
+    freeIndexList = (int*)malloc(RANGE * sizeof(int));
+    for (int i = 0; i < RANGE; i++) {
+        freeIndexList[i] = i;  // all columns free initially
+    }
+    freeIndexCount = RANGE;
 
     // Clear and allocate memory for mn arrays
     mn = (int*)calloc(RANGE, sizeof(int));
@@ -362,12 +383,6 @@ void initialize()
         exit(1);
     }
 
-    scales = (float*)malloc(RANGE * sizeof(float));
-    if (scales == NULL) {
-        printf("Memory allocation failed for scales array.\n");
-        terminate(EXIT_FAILURE);
-    }
-
     // create the app window
     app.window = SDL_CreateWindow("Matrix-Code",
         SDL_WINDOWPOS_CENTERED,
@@ -387,7 +402,8 @@ void initialize()
     }
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
-    app.renderer = SDL_CreateRenderer(app.window, 0, SDL_RENDERER_ACCELERATED);
+    app.renderer = SDL_CreateRenderer(app.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);  // Set background to black
     SDL_RenderClear(app.renderer);
     SDL_RenderPresent(app.renderer);
@@ -424,16 +440,13 @@ void initialize()
     }
 }
 
-void terminate(int exit_code)
-{
+void terminate(int exit_code) {
 
-    if (app.renderer)
-    {
+    if (app.renderer) {
         SDL_DestroyRenderer(app.renderer);
     }
 
-    if (app.window)
-    {
+    if (app.window) {
         SDL_DestroyWindow(app.window);
     }
 
@@ -445,187 +458,171 @@ void terminate(int exit_code)
     Mix_CloseAudio();
     Mix_Quit();
 
-    TTF_CloseFont(font1);
+    if (font1 != NULL) {
+        TTF_CloseFont(font1);
+    }
     TTF_Quit();
 
     SDL_Quit();
     exit(exit_code);
 }
 
+void render_rain_trails() {
+    for (int col = 0; col < RANGE; ++col) {
+        int count = trailCounts[col];
+        int writeIndex = 0;
+
+        for (int g = 0; g < count; ++g) {
+            StaticGlyph* glyph = &fadingTrails[col][g];
+            glyph->fadeTimer -= FadeTime;
+
+            if (glyph->fadeTimer > 0.0f) {
+                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;
+                int glyphIndex = glyph->glyphIndex;
+
+                if (glyphIndex < 0 || glyphIndex >= ALPHABET_SIZE)
+                    glyphIndex = 0;
+
+                SDL_Texture* texture = rainTextures[glyphIndex].head;
+
+                if (glyph->isHead) {
+                    // --- Draw green halo behind the head glyph ---
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
+                    SDL_SetRenderDrawColor(app.renderer, 0, 255, 0, 80);  // Glow color and strength
+
+                    SDL_Rect glowRect = glyph->rect;
+                    int haloSize = 8;
+                    glowRect.x -= haloSize / 2;
+                    glowRect.y -= haloSize / 2;
+                    glowRect.w += haloSize;
+                    glowRect.h += haloSize;
+
+                    SDL_RenderFillRect(app.renderer, &glowRect);
+
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);  // Restore normal blending
+
+                    // --- Draw the head glyph with bright white-green color ---
+                    SDL_SetTextureColorMod(texture, 255, 255, 255);
+                    SDL_SetTextureAlphaMod(texture, (Uint8)(fadeFactor * 255));
+                }
+                else {
+                    // Green fading trail
+                    Uint8 green = (Uint8)(fadeFactor * 255.0f);
+                    SDL_SetTextureColorMod(texture, 0, green, 0);
+                    SDL_SetTextureAlphaMod(texture, 255);
+                }
+
+                SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+
+                if (glyph->isHead) {
+                    glyph->isHead = false;
+                }
+
+                fadingTrails[col][writeIndex++] = *glyph;
+            }
+        }
+        trailCounts[col] = writeIndex;
+    }
+}
+
+
+void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead) {
+    int count = trailCounts[columnIndex];
+    int capacity = trailCapacities[columnIndex];
+
+    if (count >= capacity) {
+        // Capacity full, drop new glyph to avoid overflow
+        return;
+    }
+
+    fadingTrails[columnIndex][count].glyphIndex = glyphIndex;
+    fadingTrails[columnIndex][count].fadeTimer = initialFade;
+    fadingTrails[columnIndex][count].rect = rect;
+    fadingTrails[columnIndex][count].isHead = isHead;
+    trailCounts[columnIndex]++;
+}
+
+
 int spawn_rain(SDL_Rect** srain) {
-    int randomIndex = -1;
-
-    // Loop to find an inactive raindrop index within the range of RANGE
-    for (int i = 0; i < RANGE; i++) {
-        if (isActive[i] == 0) {  // 0 means inactive
-            randomIndex = i;
-            break;
-        }
+    if (freeIndexCount <= 0) {
+        return -1;  // no free slots
     }
 
-    if (randomIndex == -1) {
-        // All raindrops are active, return -1 to indicate no spawning
-        return -1;
+    // Choose a random free index:
+    int randPos = rand() % freeIndexCount;
+    int randomIndex = freeIndexList[randPos];
+
+    // Remove it from the free list (swap with last and shrink):
+    freeIndexList[randPos] = freeIndexList[freeIndexCount - 1];
+    freeIndexCount--;
+
+    for (int t = 0; t < Increment; t++) {
+        glyphTrail[randomIndex][t] = rand() % ALPHABET_SIZE;
     }
 
-    // Initialize glyphTrail with random glyphs
-    for (int i = 0; i < RANGE; i++) {
-        for (int t = 0; t < Increment; t++) {
-            glyphTrail[i][t] = rand() % ALPHABET_SIZE;
-        }
-    }
+    int spawnX = mn[randomIndex];
+    int columnIndex = spawnX / CHAR_SPACING;
+    columnOccupied[columnIndex] = 1;
 
-    // Determine if the raindrop will be normal, faster, or fastest
-    int dropType = rand() % 3;  // 0 = normal, 1 = faster, 2 = fastest
-
-    // Use generateUniqueRandomNumber to get a unique X-coordinate
-    int spawnX = mn[generateUniqueRandomNumber(RANGE)];  // Get a unique X-coordinate from 'mn'
-
-    // Check if there's already an active raindrop at the same X position
-    for (int i = 0; i < RANGE; i++) {
-        if (isActive[i] == 1 && srain[i][Increment - 1].x == spawnX && srain[i][Increment - 1].y < DM.h) {
-            // If an active raindrop exists in this area, don't spawn a new one
-            return -1;
-        }
-    }
-
-    // Initialize the raindrop at the random X-coordinate, starting from the top
     srain[randomIndex][0].x = spawnX;
     srain[randomIndex][0].y = RAIN_START_Y;
 
-    // Randomize the speed for the raindrop and set size multiplier
-    float randomSpeed;
-    float sizeMultiplier;
+    int glyphHeight = emptyTextureHeight;
 
-    int spacing; // Spacing variable for segment distance
-    if (dropType == 0) {  // Normal raindrop
-        randomSpeed = 1.0f;                   // Base speed
-        sizeMultiplier = 1.25f;               // Base size
-        spacing = (int)(20.0f * randomSpeed);  // spacing matches speed (20 * 1.0f = 20)
-        scales[randomIndex] = 1.125f;         // scale for normal raindrop
-    }
-    else if (dropType == 1) {  // Faster raindrop
-        randomSpeed = 2.0f;                   // 2x speed
-        sizeMultiplier = 1.25f;               // Same size
-        spacing = (int)(20.0f * randomSpeed);  // 20 * 2.0f = 40
-        scales[randomIndex] = 1.25f;          // scale for faster raindrop
-    }
-    else {  // Fastest raindrop
-        randomSpeed = 3.0f;                   // 3x speed (avoid 4.0f unless you want extreme speed)
-        sizeMultiplier = 1.75f;               // Same size
-        spacing = (int)(20.0f * randomSpeed);  // 20 * 3.0f = 60
-        scales[randomIndex] = 1.5f;           // scale for fastest raindrop
-    }
-    speed[randomIndex] = randomSpeed;
+    speed[randomIndex] = (rand() % 2 == 0) ? 1.0f : 1.5f;
 
-    // Loop to add multiple parts to the "raindrop" (tail, body, etc.)
+    int spacing = glyphHeight;
+
     for (int t = 0; t < Increment; t++) {
         srain[randomIndex][t].x = spawnX;
-
-        // Adjust Y positions with a progressive spacing pattern
-        if (t == 0) {
-            // First part (head) starts at RAIN_START_Y
-            srain[randomIndex][t].y = RAIN_START_Y;
-        }
-        else {
-            // Adjust spacing based on the speed of the raindrop
-            srain[randomIndex][t].y = srain[randomIndex][t - 1].y - (t * spacing); // Incremental spacing
-        }
-
-        // Set the width and height for each part, adjusted by the sizeMultiplier
-        srain[randomIndex][t].w = (int)round(emptyTextureWidth * sizeMultiplier);
-        srain[randomIndex][t].h = (int)round(emptyTextureHeight * sizeMultiplier);
+        srain[randomIndex][t].y = RAIN_START_Y - (t * spacing);
+        srain[randomIndex][t].w = emptyTextureWidth;
+        srain[randomIndex][t].h = emptyTextureHeight;
     }
 
-    // Mark this raindrop as active
-    isActive[randomIndex] = 1;  // 1 means active
+    isActive[randomIndex] = 1;
 
     return randomIndex;
 }
 
+
 int move_rain(SDL_Rect** srain, int i) {
-    // If this raindrop is inactive, skip processing
     if (!isActive[i]) return i;
 
-    // Calculate movement speed for this raindrop (base speed * multiplier)
     float movement = app.dy * speed[i];
 
-    // Update position and size of each segment in the raindrop
     for (int n = 0; n < Increment; ++n) {
-        // Move each segment downward by movement amount
         srain[i][n].y += (int)(movement);
-
-        float scale = scales[i];  // Use precomputed scale
-
-        // Calculate scaled width and height
-        srain[i][n].w = (int)(emptyTextureWidth * scale);
-        srain[i][n].h = (int)(emptyTextureHeight * scale);
+        srain[i][n].w = emptyTextureWidth;
+        srain[i][n].h = emptyTextureHeight;
     }
 
-    // Shift glyphs down the trail (from tail to head)
-    for (int t = Increment - 1; t > 0; t--) {
-        glyphTrail[i][t] = glyphTrail[i][t - 1];  // copy previous glyph down the trail
+    for (int n = Increment - 1; n > 0; n--) {
+        glyphTrail[i][n] = glyphTrail[i][n - 1];
     }
 
-    // Generate a new random glyph only for the head (top of the trail)
     int newGlyph;
-    bool unique;
-
     do {
         newGlyph = rand() % ALPHABET_SIZE;
-        unique = true;
-        // Check last 5 glyphs to avoid repeats
-        for (int t = 1; t <= 5 && t < Increment; t++) {
-            if (glyphTrail[i][t] == newGlyph) {
-                unique = false;
-                break;
-            }
-        }
-    } while (!unique);
+    } while (newGlyph == glyphTrail[i][1]);
 
     glyphTrail[i][0] = newGlyph;
 
-    // Render each segment using the glyph stored in glyphTrail[i][n]
-    for (int n = 0; n < Increment; ++n) {
-        int glyphIndex = glyphTrail[i][n];
-
-        if (glyphIndex < 0 || glyphIndex >= ALPHABET_SIZE) {
-            printf("Warning: invalid glyphIndex %d at raindrop %d, segment %d\n", glyphIndex, i, n);
-            glyphIndex = 0;
-        }
-
-        if (n == 0) {
-            // Render the headf (brightest head glyph)
-            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].headf, NULL, &srain[i][n]);
-        }
-        else if (n == 1) {
-            // Render the head (slightly less bright than headf)
-            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].head, NULL, &srain[i][n]);
-        }
-        else if (n == 2) {
-            // Render the neck segment
-            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].neck, NULL, &srain[i][n]);
-        }
-        else if (n == 3) {
-            // Render the body segment
-            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].body, NULL, &srain[i][n]);
-        }
-        else if (n == 4) {
-            // Render the tail segment
-            SDL_RenderCopy(app.renderer, rainTextures[glyphIndex].tail, NULL, &srain[i][n]);
-        }
-        else {
-            // Render empty texture for segments beyond tail
-            SDL_RenderCopy(app.renderer, emptyTexture, NULL, &srain[i][n]);
-        }
+    int columnIndex = srain[i][0].x / CHAR_SPACING;
+    if (columnIndex >= 0 && columnIndex < RANGE) {
+        spawnStaticGlyph(columnIndex, glyphTrail[i][0], srain[i][0], 1.0f, true); // mark head
     }
 
-    // Check if the raindrop's tail has moved offscreen
     if (srain[i][Increment - 1].y >= DM.h) {
-        // Mark this raindrop as inactive to allow respawning
         isActive[i] = 0;
+        for (int t = 0; t < Increment; t++) {
+            glyphTrail[i][t] = -1;
+        }
+        int columnIndex = srain[i][0].x / CHAR_SPACING;
+        columnOccupied[columnIndex] = 0;
+        freeIndexList[freeIndexCount++] = i;
+        return i;
     }
 
     return i;
 }
-
