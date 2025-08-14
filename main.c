@@ -18,7 +18,7 @@
 int* mn;                 // X positions of glyph columns (array of ints)
 int RANGE = 0;           // Number of columns (calculated based on screen width and CHAR_SPACING)
 int* isActive;           // Flags indicating if a column is active (1) or inactive (0)
-int** glyphTrail;        // 2D array holding indices of glyphs currently in each column trail
+int* headGlyphIndex = NULL; // current head character per active column (-1 = none)
 int* columnOccupied;     // Flags indicating if a column is occupied (used for spawn control)
 int* freeIndexList;      // List of free (inactive) column indices available for spawning new trails
 int freeIndexCount = 0;  // Number of free columns currently available
@@ -129,13 +129,7 @@ void cleanupMemory() {
     free(mn);              // Free the array holding column x positions
     free(speed);           // Free the array holding speeds per column
     free(isActive);        // Free the array tracking active columns
-
-    // Free the 2D array holding glyph indices for each column's trail
-    if (glyphTrail) {
-        for (int i = 0; i < RANGE; i++)
-            free(glyphTrail[i]);
-        free(glyphTrail);
-    }
+    free(headGlyphIndex);
 
     // Free the 2D array holding SDL_Rect for each glyph per column
     if (glyph) {
@@ -232,9 +226,7 @@ void render_glyph_trails() {
                     SDL_SetTextureAlphaMod(texture, 255);
                     SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);  // Draw the glyph body
                 }
-                // Draw the glyph texture again (this may be intentional for effect or a minor redundancy)
-                SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
-
+                
                 glyph->isHead = false;  // Reset head flag after first render
                 fadingTrails[col][writeIndex++] = *glyph;  // Store glyph for next frame fading
             }
@@ -259,91 +251,94 @@ void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float init
 }
 
 int spawn(SDL_Rect** glyph) {
-    if (freeIndexCount <= 0) return -1;  // If no free columns available, return -1 indicating spawn failure
+    if (freeIndexCount <= 0) return -1;  // Optimization: if nothing free, skip entirely
 
-    int randPos = rand() % freeIndexCount;  // Pick a random position in the freeIndexList array
-    int randomIndex = freeIndexList[randPos];  // Get the actual column index from freeIndexList at randPos
+    int randomIndex;
+    int maxTries = 10;
 
-    // Remove the chosen index from freeIndexList by swapping with the last element and decreasing count
-    freeIndexList[randPos] = freeIndexList[--freeIndexCount];
+    // Try up to 10 random columns until finding one that is not active
+    for (int tries = 0; tries < maxTries; tries++) {
+        randomIndex = rand() % RANGE;
+        if (!isActive[randomIndex]) goto found;  // If found a free column, proceed
+    }
 
-    // Initialize glyphTrail for this column with random glyph indices (characters)
-    for (int t = 0; t < Increment; t++)
-        glyphTrail[randomIndex][t] = rand() % ALPHABET_SIZE;
+    // If no free random column was found after retries, fall back to freeIndexList
+    if (freeIndexCount <= 0) return -1;  // If still no options, give up
+    randomIndex = freeIndexList[--freeIndexCount];  // Take one from the free list
+    goto found;
 
-    int spawnX = mn[randomIndex];  // Calculate X position for this column based on precomputed positions (mn array)
-    int columnIndex = spawnX / CHAR_SPACING;  // Calculate the column index from X position
+found:
+    headGlyphIndex[randomIndex] = rand() % ALPHABET_SIZE;
+
+    int spawnX = mn[randomIndex];  // Get horizontal X position for this column
+    int columnIndex = spawnX / CHAR_SPACING;  // Calculate the column index based on spacing
 
     columnOccupied[columnIndex] = 1;  // Mark this column as occupied
 
     glyph[randomIndex][0].x = spawnX;  // Set X position of the first glyph in this column
-    glyph[randomIndex][0].y = glyph_START_Y;  // Set Y start position above the screen (offscreen spawn start)
+    glyph[randomIndex][0].y = glyph_START_Y;  // Set Y start position above the screen
 
-    int glyphHeight = emptyTextureHeight;  // Get height of glyph textures (for vertical spacing)
+    int glyphHeight = emptyTextureHeight;  // Get glyph texture height for vertical spacing
 
-    // Assign a random speed multiplier (1.0, 1.25, or 1.5) for the falling glyphs in this column
-    speed[randomIndex] = 1.0f + (rand() % 9) * 0.125f;
+    // Assign a random speed multiplier (1.0, 1.25, or 1.5) for this column
+    speed[randomIndex] = 1.0f; //+(rand() % 3) * 0.5f;
 
     // Initialize all glyph rectangles in the column with their position and size
-    for (int t = 0; t < Increment; t++) {
-        glyph[randomIndex][t].x = spawnX;
-        glyph[randomIndex][t].y = glyph_START_Y - (t * glyphHeight);  // Position each glyph above the previous
-        glyph[randomIndex][t].w = emptyTextureWidth;  // Set width of glyph texture rectangle
-        glyph[randomIndex][t].h = emptyTextureHeight;  // Set height of glyph texture rectangle
-    }
+    glyph[randomIndex][0].x = spawnX;
+    glyph[randomIndex][0].y = glyph_START_Y;
+    glyph[randomIndex][0].w = emptyTextureWidth;
+    glyph[randomIndex][0].h = emptyTextureHeight;
 
     isActive[randomIndex] = 1;  // Mark this column as active (currently displaying glyphs)
+
+    // Remove from freeIndexList if still present (cleanup in case it was listed)
+    for (int i = 0; i < freeIndexCount; i++) {
+        if (freeIndexList[i] == randomIndex) {
+            freeIndexList[i] = freeIndexList[--freeIndexCount];
+            break;
+        }
+    }
 
     return randomIndex;  // Return the index of the spawned column
 }
 
 int move(SDL_Rect** glyph, int i) {
-    if (i < 0 || i >= RANGE) return i;  // Validate column index: if out of range, return immediately
-    if (!glyph || !glyph[i] || !glyphTrail || !glyphTrail[i]) return i;  // Check for null pointers to avoid crashes
-    if (!isActive[i]) return i;  // If the column is not active (no falling glyphs), return early
+    if (i < 0 || i >= RANGE) return i;
+    if (!glyph || !glyph[i]) return i;
+    if (!isActive[i]) return i;
 
-    float movement = app.dy * speed[i];  // Calculate movement amount based on global speed and column-specific speed
+    float movement = app.dy * speed[i];
 
-    // Move each glyph in the column downward by the movement amount (cast to int)
-    for (int n = 0; n < Increment; n++)
-        glyph[i][n].y += (int)movement;
+    // Move only the head rect
+    glyph[i][0].y += (int)movement;
 
-    // Shift the glyphTrail indices down by one to simulate glyphs falling down the trail
-    for (int n = Increment - 1; n > 0; n--)
-        glyphTrail[i][n] = glyphTrail[i][n - 1];
+    // Pick a new head character (avoid immediate repeat)
+    int newGlyph = rand() % ALPHABET_SIZE;
+    if (headGlyphIndex[i] >= 0 && newGlyph == headGlyphIndex[i]) {
+        newGlyph = (newGlyph + 1) % ALPHABET_SIZE;
+    }
+    headGlyphIndex[i] = newGlyph;
 
-    int newGlyph;
-
-    // Generate a new random glyph index different from the one immediately after the head (to avoid repetition)
-    do {
-        newGlyph = rand() % ALPHABET_SIZE;
-    } while (newGlyph == glyphTrail[i][1]);
-
-    glyphTrail[i][0] = newGlyph;  // Set the new glyph index at the start of the trail (head)
-
-    int columnIndex = glyph[i][0].x / CHAR_SPACING;  // Determine the column index based on the glyph’s X position
-
-    // Clamp columnIndex to valid range to avoid out-of-bounds access
+    // Column index by X (clamped)
+    int columnIndex = glyph[i][0].x / CHAR_SPACING;
     if (columnIndex < 0) columnIndex = 0;
     else if (columnIndex >= RANGE) columnIndex = RANGE - 1;
 
-    // Spawn a static glyph at the head position with full opacity and mark it as head
-    spawnStaticGlyph(columnIndex, glyphTrail[i][0], glyph[i][0], 1.0f, true);
+    // Drop a static glyph at the head position
+    spawnStaticGlyph(columnIndex, headGlyphIndex[i], glyph[i][0], 1.0f, true);
 
-    // If the last glyph in the column has moved past the bottom of the screen,
-    // deactivate the column, clear the glyph trail, free the column slot for reuse
-    if (glyph[i][Increment - 1].y >= DM.h) {
-        isActive[i] = 0;  // Mark column as inactive
-        for (int t = 0; t < Increment; t++) glyphTrail[i][t] = -1;  // Reset glyph trail indices to invalid
-        columnOccupied[columnIndex] = 0;  // Mark column as unoccupied
+    // If head is past bottom, deactivate column (trail will fade naturally)
+    if (glyph[i][0].y >= DM.h) {
+        isActive[i] = 0;
+        headGlyphIndex[i] = -1;
+        columnOccupied[columnIndex] = 0;
 
-        // Add the column back to the free index list if there is room
         if (freeIndexCount < RANGE) {
             freeIndexList[freeIndexCount++] = i;
         }
     }
 
-    return i;  // Return the processed column index
+    return i;
 }
 
 void initialize() {
@@ -365,6 +360,7 @@ void initialize() {
     trailCounts = calloc(RANGE, sizeof(int));       // Number of glyphs in fading trail per column, initialized to 0
     trailCapacities = malloc(RANGE * sizeof(int));  // Capacity for fading trails per column (usually fixed size)
     fadingTrails = malloc(RANGE * sizeof(StaticGlyph*));  // Array of pointers for trails per column
+    headGlyphIndex = malloc(RANGE * sizeof(int));
 
     for (int i = 0; i < RANGE; i++) {
         mn[i] = i * CHAR_SPACING;             // Assign X position of each column as multiples of CHAR_SPACING
@@ -375,6 +371,7 @@ void initialize() {
         trailCounts[i] = 0;                   // No fading trails initially
         trailCapacities[i] = 256;             // Set fading trail capacity per column to 256 glyphs
         fadingTrails[i] = malloc(256 * sizeof(StaticGlyph));  // Allocate memory for each column’s fading trail glyphs
+        headGlyphIndex[i] = -1;
     }
 
     freeIndexCount = RANGE;  // Set count of free columns equal to total columns
@@ -394,12 +391,7 @@ void initialize() {
     glyph = calloc(RANGE, sizeof(SDL_Rect*));  // Allocate array of pointers for glyph rectangles per column
 
     for (int i = 0; i < RANGE; i++)
-        glyph[i] = calloc(Increment + 1, sizeof(SDL_Rect));  // Allocate glyph rectangles (positions and sizes) for each column
-
-    glyphTrail = calloc(RANGE, sizeof(int*));  // Allocate arrays to store glyph indices for trails per column
-
-    for (int i = 0; i < RANGE; i++)
-        glyphTrail[i] = calloc(Increment, sizeof(int));  // Allocate each glyph trail array with `Increment` length
+        glyph[i] = calloc(1, sizeof(SDL_Rect));  // Allocate glyph rectangles (positions and sizes) for each column
 
     SDL_Color fg = { 255, 255, 255, 255 }, bg = { 0, 0, 0, 255 };  // Define white foreground and black background colors for text rendering
 
@@ -451,7 +443,7 @@ int main(int argc, char* argv[]) {
 
         SDL_RenderPresent(app.renderer);  // Present the rendered frame on the window (swap buffers)
 
-        SDL_Delay(1000 / 60);  // Delay to cap frame rate roughly at 60 FPS to reduce CPU usage
+        SDL_Delay(((1000 / 60) > (SDL_GetTicks() - currentTime)) ? ((1000 / 60) - (SDL_GetTicks() - currentTime)) : 0); // Delay to cap frame rate roughly at 60 FPS to reduce CPU usage
     }
 
     terminate(0);  // Clean up all allocated resources and quit SDL subsystems, then exit program
