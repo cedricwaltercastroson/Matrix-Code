@@ -195,36 +195,43 @@ void render_glyph_trails() {
                 float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;  // Quadratic fade for smoothness
                 SDL_Texture* texture = gTextures[glyph->glyphIndex].head;  // Texture of the glyph
 
-                if (glyph->isHead) {  // Special rendering for the glyph head (brightest part)
-                    // Use additive blending mode for glow effect
+                if (glyph->isHead) {
+                    // --- Additive halo glow ---
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
-
-                    // Draw the halo glow around the glyph head
                     SDL_SetRenderDrawColor(app.renderer, 0, 255, 0, 80);  // Semi-transparent green
                     SDL_Rect glowRect = glyph->rect;
-                    int haloSize = 8;  // Size of the halo effect
-                    glowRect.x -= haloSize / 2;  // Expand halo rectangle horizontally
-                    glowRect.y -= haloSize / 2;  // Expand halo rectangle vertically
+                    int haloSize = 8;
+                    glowRect.x -= haloSize / 2;
+                    glowRect.y -= haloSize / 2;
                     glowRect.w += haloSize;
                     glowRect.h += haloSize;
-                    SDL_RenderFillRect(app.renderer, &glowRect);  // Render the glow rectangle
+                    SDL_RenderFillRect(app.renderer, &glowRect);
 
-                    // Render the glyph head texture with brightened alpha for glow effect
-                    SDL_SetTextureColorMod(texture, 255, 255, 255);  // Full white color modulation
-                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;  // Add brightness boost to alpha
-                    if (brightAlpha > 255) brightAlpha = 255;  // Clamp to max 255
+                    // --- Render head glyph with bright alpha ---
+                    SDL_SetTextureColorMod(texture, 255, 255, 255);  // Full white
+                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
+                    if (brightAlpha > 255) brightAlpha = 255;
                     SDL_SetTextureAlphaMod(texture, brightAlpha);
+                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
 
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);  // Draw the glyph head
-
-                    // Reset the blend mode to normal alpha blending for next renders
+                    // --- Reset blend mode ---
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
                 }
                 else {
-                    // For non-head glyphs, modulate green channel based on fade factor, full alpha
+                    // Clamp fade factor
+                    fadeFactor = fmin(fmax(fadeFactor, 0.0f), 1.0f);
+
+                    // Optional: small additive glow for trail
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
+                    SDL_SetRenderDrawColor(app.renderer, 0, 200, 0, (Uint8)(fadeFactor * 50));
+                    SDL_Rect trailGlow = glyph->rect;
+                    SDL_RenderFillRect(app.renderer, &trailGlow);
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+
+                    // Modulate green channel of the white texture
                     SDL_SetTextureColorMod(texture, 0, (Uint8)(fadeFactor * 255), 0);
-                    SDL_SetTextureAlphaMod(texture, 255);
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);  // Draw the glyph body
+                    SDL_SetTextureAlphaMod(texture, 255);  // full alpha
+                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
                 }
                 
                 glyph->isHead = false;  // Reset head flag after first render
@@ -411,40 +418,48 @@ void initialize() {
 int main(int argc, char* argv[]) {
     initialize();  // Initialize SDL, audio, fonts, window, renderer, textures, and global variables
 
-    float accumulator = 0.0f;  // Accumulates elapsed time for fixed-step simulation updates
-    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP; // Fixed timestep in milliseconds (e.g., 33.33ms for 30 FPS)
+    float accumulator = 0.0f;
+    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP;  // Fixed timestep in ms
 
-    Uint32 previousTime = SDL_GetTicks();  // Get initial time in milliseconds since SDL init
+    Uint32 previousTime = SDL_GetTicks();  // Start time
 
-    while (app.running) {  // Main application loop - runs until app.running is set to 0
-        Uint32 currentTime = SDL_GetTicks();  // Get current time
-        float frameTime = (float)(currentTime - previousTime);  // Calculate elapsed time since last frame in ms
-        previousTime = currentTime;  // Update previous time for next frame calculation
-        accumulator += frameTime;    // Add elapsed time to accumulator
+    while (app.running) {
+        // --- Timing ---
+        Uint32 frameStart = SDL_GetTicks();  // Start of this frame
+        float frameTime = (float)(frameStart - previousTime);
+        previousTime = frameStart;
+        accumulator += frameTime;
 
+        // --- Event handling ---
         SDL_Event e;
-        while (SDL_PollEvent(&e)) {  // Process all pending SDL events (keyboard, window, etc.)
+        while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
-                app.running = 0;  // If window closed or ESC pressed, exit main loop
+                app.running = 0;
         }
 
-        // Run fixed timestep simulation updates while enough time has accumulated
+        // --- Fixed-step simulation updates ---
         while (accumulator >= SIMULATION_STEP) {
-            int spawnCount = (rand() % 100 < 50) ? 1 : 3;  // Randomly decide how many new rain columns to spawn: 1 (50% chance) or 3 (50% chance)
-            for (int i = 0; i < spawnCount; i++) spawn(glyph);  // Spawn new rain drops/glyphs in random columns
-            for (int i = 0; i < RANGE; i++) move(glyph, i);  // Update position of all active glyph columns
-            accumulator -= SIMULATION_STEP;  // Decrease accumulator by one simulation step
+            int spawnCount = (rand() % 100 < 50) ? 1 : 3;
+            for (int i = 0; i < spawnCount; i++) spawn(glyph);
+            for (int i = 0; i < RANGE; i++) move(glyph, i);
+            accumulator -= SIMULATION_STEP;
         }
 
-        SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);  // Set renderer clear color to black (RGBA)
-        SDL_RenderClear(app.renderer);                        // Clear the screen with the clear color
+        // --- Rendering ---
+        SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
+        SDL_RenderClear(app.renderer);
 
-        render_glyph_trails();  // Render all the glyphs and their fading trails to the screen
+        render_glyph_trails();
 
-        SDL_RenderPresent(app.renderer);  // Present the rendered frame on the window (swap buffers)
+        SDL_RenderPresent(app.renderer);
 
-        SDL_Delay(((1000 / 60) > (SDL_GetTicks() - currentTime)) ? ((1000 / 60) - (SDL_GetTicks() - currentTime)) : 0); // Delay to cap frame rate roughly at 60 FPS to reduce CPU usage
+        // --- Frame rate cap at 60 FPS ---
+        Uint32 frameDuration = SDL_GetTicks() - frameStart;  // Time spent this frame
+        if (frameDuration < 1000 / 60) {
+            SDL_Delay((1000 / 60) - frameDuration);
+        }
     }
 
-    terminate(0);  // Clean up all allocated resources and quit SDL subsystems, then exit program
+    terminate(0);
 }
+
