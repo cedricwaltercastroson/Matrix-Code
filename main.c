@@ -12,7 +12,7 @@
 #define Increment                   30         // Number of glyphs in a column trail
 #define DEFAULT_SIMULATION_STEP     30         // Simulation update step in ms (~33ms = 30 FPS)
 #define ALPHABET_SIZE               62         // Number of glyphs (digits + upper + lower case)
-#define FadeTime                    0.01f      // Time decrement for glyph fade effect
+#define FadeTime                    0.008f      // Time decrement for glyph fade effect
 
 // Global variables related to glyph columns and trails
 int* mn;                 // X positions of glyph columns (array of ints)
@@ -416,16 +416,24 @@ void initialize() {
 }
 
 int main(int argc, char* argv[]) {
-    initialize();  // Initialize SDL, audio, fonts, window, renderer, textures, and global variables
+    initialize();  // Initialize SDL, audio, fonts, window, renderer, textures, and globals
 
     float accumulator = 0.0f;
-    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP;  // Fixed timestep in ms
+    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP;
 
-    Uint32 previousTime = SDL_GetTicks();  // Start time
+    Uint32 previousTime = SDL_GetTicks();
+    srand((unsigned int)time(NULL));
+
+    // --- Local gradual wave variables ---
+    float spawnValue = 1.0f;          // starting value
+    const float SPAWN_MIN = 1;
+    const float SPAWN_MAX = 4;
+    const float SPAWN_STEP = 0.05f;   // max change per step
+    const float JITTER = 0.2f;        // small random flicker
 
     while (app.running) {
         // --- Timing ---
-        Uint32 frameStart = SDL_GetTicks();  // Start of this frame
+        Uint32 frameStart = SDL_GetTicks();
         float frameTime = (float)(frameStart - previousTime);
         previousTime = frameStart;
         accumulator += frameTime;
@@ -439,9 +447,26 @@ int main(int argc, char* argv[]) {
 
         // --- Fixed-step simulation updates ---
         while (accumulator >= SIMULATION_STEP) {
-            int spawnCount = (rand() % 100 < 50) ? 1 : 3;
-            for (int i = 0; i < spawnCount; i++) spawn(glyph);
+            // Gradual wave with jitter
+            float delta = ((rand() % 100) / 100.0f * 2 - 1) * SPAWN_STEP; // drift
+            float jitter = ((rand() % 100) / 100.0f * 2 - 1) * JITTER;    // tiny flicker
+            spawnValue += delta + jitter;
+
+            // Clamp to min/max
+            if (spawnValue < SPAWN_MIN) spawnValue = SPAWN_MIN;
+            if (spawnValue > SPAWN_MAX) spawnValue = SPAWN_MAX;
+
+            // Determine how many glyphs to attempt spawning
+            int spawnCount = (int)(spawnValue + 0.5f);
+
+            // Spawn glyphs; spawn() handles free column availability
+            for (int i = 0; i < spawnCount; i++) {
+                spawn(glyph);  // returns -1 if no column is free
+            }
+
+            // Move all glyphs
             for (int i = 0; i < RANGE; i++) move(glyph, i);
+
             accumulator -= SIMULATION_STEP;
         }
 
@@ -454,7 +479,7 @@ int main(int argc, char* argv[]) {
         SDL_RenderPresent(app.renderer);
 
         // --- Frame rate cap at 60 FPS ---
-        Uint32 frameDuration = SDL_GetTicks() - frameStart;  // Time spent this frame
+        Uint32 frameDuration = SDL_GetTicks() - frameStart;
         if (frameDuration < 1000 / 60) {
             SDL_Delay((1000 / 60) - frameDuration);
         }
