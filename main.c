@@ -23,6 +23,7 @@ int* columnOccupied;     // Flags indicating if a column is occupied (used for s
 int* freeIndexList;      // List of free (inactive) column indices available for spawning new trails
 int freeIndexCount = 0;  // Number of free columns currently available
 float* speed;            // Speed multiplier for each column's glyph movement
+float* yAccum; // Accumulated vertical movement per column
 
 // Dimensions of the empty texture placeholder used for spacing glyphs
 int emptyTextureWidth, emptyTextureHeight;
@@ -130,6 +131,7 @@ void cleanupMemory() {
     free(speed);           // Free the array holding speeds per column
     free(isActive);        // Free the array tracking active columns
     free(headGlyphIndex);
+    free(yAccum);
 
     // Free the 2D array holding SDL_Rect for each glyph per column
     if (glyph) {
@@ -219,7 +221,7 @@ void render_glyph_trails() {
                 }
                 else {
                     // Clamp fade factor
-                    fadeFactor = fmin(fmax(fadeFactor, 0.0f), 1.0f);
+                    fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f);
 
                     // Optional: small additive glow for trail
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
@@ -288,7 +290,7 @@ found:
     int glyphHeight = emptyTextureHeight;  // Get glyph texture height for vertical spacing
 
     // Assign a random speed multiplier (1.0, 1.25, or 1.5) for this column
-    speed[randomIndex] = 1.0f; //+(rand() % 3) * 0.5f;
+    speed[randomIndex] = (rand() % 3 + 1) * 0.5f;
 
     // Initialize all glyph rectangles in the column with their position and size
     glyph[randomIndex][0].x = spawnX;
@@ -314,34 +316,54 @@ int move(SDL_Rect** glyph, int i) {
     if (!glyph || !glyph[i]) return i;
     if (!isActive[i]) return i;
 
+    // Accumulate pixel movement
     float movement = app.dy * speed[i];
+    yAccum[i] += movement;
 
-    // Move only the head rect
-    glyph[i][0].y += (int)movement;
+    int cellH = emptyTextureHeight;
 
-    // Pick a new head character (avoid immediate repeat)
-    int newGlyph = rand() % ALPHABET_SIZE;
-    if (headGlyphIndex[i] >= 0 && newGlyph == headGlyphIndex[i]) {
-        newGlyph = (newGlyph + 1) % ALPHABET_SIZE;
-    }
-    headGlyphIndex[i] = newGlyph;
+    // Only do work once we've crossed at least one full cell
+    if (yAccum[i] >= cellH) {
+        int cellSteps = (int)(yAccum[i] / cellH);
+        yAccum[i] -= cellSteps * cellH;
 
-    // Column index by X (clamped)
-    int columnIndex = glyph[i][0].x / CHAR_SPACING;
-    if (columnIndex < 0) columnIndex = 0;
-    else if (columnIndex >= RANGE) columnIndex = RANGE - 1;
+        // Column index by X (clamped)
+        int columnIndex = glyph[i][0].x / CHAR_SPACING;
+        if (columnIndex < 0) columnIndex = 0;
+        else if (columnIndex >= RANGE) columnIndex = RANGE - 1;
 
-    // Drop a static glyph at the head position
-    spawnStaticGlyph(columnIndex, headGlyphIndex[i], glyph[i][0], 1.0f, true);
+        // Remember where the head was before advancing
+        int baseY = glyph[i][0].y;
 
-    // If head is past bottom, deactivate column (trail will fade naturally)
-    if (glyph[i][0].y >= DM.h) {
-        isActive[i] = 0;
-        headGlyphIndex[i] = -1;
-        columnOccupied[columnIndex] = 0;
+        // Spawn every skipped cell so there are no visual gaps at >1.0 speeds
+        for (int step = 0; step < cellSteps; ++step) {
+            SDL_Rect stepRect = glyph[i][0];
+            stepRect.y = baseY + step * cellH;
 
-        if (freeIndexCount < RANGE) {
-            freeIndexList[freeIndexCount++] = i;
+            int newGlyph = rand() % ALPHABET_SIZE;
+            if (headGlyphIndex[i] >= 0 && newGlyph == headGlyphIndex[i]) {
+                newGlyph = (newGlyph + 1) % ALPHABET_SIZE;
+            }
+            headGlyphIndex[i] = newGlyph;
+
+            // Only the last spawned one is the *head* (bright glow)
+            bool isLast = (step == cellSteps - 1);
+            spawnStaticGlyph(columnIndex, headGlyphIndex[i], stepRect, 1.0f, isLast);
+        }
+
+        // ✅ Advance the head exactly once by the total stepped cells
+        glyph[i][0].y = baseY + cellSteps * cellH;
+
+        // Deactivate if past bottom; trail will fade naturally
+        if (glyph[i][0].y >= DM.h) {
+            isActive[i] = 0;
+            headGlyphIndex[i] = -1;
+            columnOccupied[columnIndex] = 0;
+
+            if (freeIndexCount < RANGE) {
+                freeIndexList[freeIndexCount++] = i;
+            }
+            yAccum[i] = 0.0f; // reset accumulator for next time this column is used
         }
     }
 
@@ -368,6 +390,7 @@ void initialize() {
     trailCapacities = malloc(RANGE * sizeof(int));  // Capacity for fading trails per column (usually fixed size)
     fadingTrails = malloc(RANGE * sizeof(StaticGlyph*));  // Array of pointers for trails per column
     headGlyphIndex = malloc(RANGE * sizeof(int));
+    yAccum = calloc(RANGE, sizeof(float));
 
     for (int i = 0; i < RANGE; i++) {
         mn[i] = i * CHAR_SPACING;             // Assign X position of each column as multiples of CHAR_SPACING
@@ -379,6 +402,7 @@ void initialize() {
         trailCapacities[i] = 256;             // Set fading trail capacity per column to 256 glyphs
         fadingTrails[i] = malloc(256 * sizeof(StaticGlyph));  // Allocate memory for each column’s fading trail glyphs
         headGlyphIndex[i] = -1;
+        yAccum[i] = 0.0f;
     }
 
     freeIndexCount = RANGE;  // Set count of free columns equal to total columns
