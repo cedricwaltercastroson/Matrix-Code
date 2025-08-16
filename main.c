@@ -6,24 +6,24 @@
 #include <SDL_ttf.h>    // SDL extension for TrueType font rendering
 
 // Constants for font size, character spacing, start position, etc.
-#define FONT_SIZE                   24         // Size of font glyphs
-#define CHAR_SPACING                12         // Horizontal spacing between glyph columns
-#define glyph_START_Y               -20        // Initial Y position of glyphs (start off-screen)
+#define FONT_SIZE                   26//24         // Size of font glyphs
+#define CHAR_SPACING                14         // Horizontal spacing between glyph columns
+#define glyph_START_Y               0        // Initial Y position of glyphs (start off-screen)
 #define Increment                   30         // Number of glyphs in a column trail
 #define DEFAULT_SIMULATION_STEP     30         // Simulation update step in ms (~33ms = 30 FPS)
-#define ALPHABET_SIZE               62         // Number of glyphs (digits + upper + lower case)
-#define FadeTime                    0.008f      // Time decrement for glyph fade effect
+#define ALPHABET_SIZE               36//62         // Number of glyphs (digits + upper + lower case)
+#define FadeTime                    0.01f      // Time decrement for glyph fade effect
 
 // Global variables related to glyph columns and trails
-int* mn;                 // X positions of glyph columns (array of ints)
-int RANGE = 0;           // Number of columns (calculated based on screen width and CHAR_SPACING)
-int* isActive;           // Flags indicating if a column is active (1) or inactive (0)
+int* mn;                    // X positions of glyph columns (array of ints)
+int RANGE = 0;              // Number of columns (calculated based on screen width and CHAR_SPACING)
+int* isActive;              // Flags indicating if a column is active (1) or inactive (0)
 int* headGlyphIndex = NULL; // current head character per active column (-1 = none)
-int* columnOccupied;     // Flags indicating if a column is occupied (used for spawn control)
-int* freeIndexList;      // List of free (inactive) column indices available for spawning new trails
-int freeIndexCount = 0;  // Number of free columns currently available
-float* speed;            // Speed multiplier for each column's glyph movement
-float* yAccum; // Accumulated vertical movement per column
+int* columnOccupied;        // Flags indicating if a column is occupied (used for spawn control)
+int* freeIndexList;         // List of free (inactive) column indices available for spawning new trails
+int freeIndexCount = 0;     // Number of free columns currently available
+float* speed;               // Speed multiplier for each column's glyph movement
+float* VerticalAccumulator = NULL; // Accumulated vertical movement per column
 
 // Dimensions of the empty texture placeholder used for spacing glyphs
 int emptyTextureWidth, emptyTextureHeight;
@@ -79,13 +79,19 @@ SDL_DisplayMode DM = { .w = 0, .h = 0 };
 // Includes digits 0-9, uppercase A-Z, and lowercase a-z
 const char* alphabet[ALPHABET_SIZE] = {
     "0","1","2","3","4","5","6","7","8","9",  // Digits 0-9
-    "A","B","C","D","E","F","G","H","I","J",  // Uppercase letters A-J
-    "K","L","M","N","O","P","Q","R","S","T",  // Uppercase letters K-T
-    "U","V","W","X","Y","Z","a","b","c","d",  // Uppercase U-Z and lowercase a-d
-    "e","f","g","h","i","j","k","l","m","n",  // Lowercase e-n
-    "o","p","q","r","s","t","u","v","w","x",  // Lowercase o-x
-    "y","z"                                   // Lowercase y-z
+    "a","b","c","d","e","f","g","h","i","j",  // Lowercase letters a-j
+    "k","l","m","n","o","p","q","r","s","t",  // Lowercase letters K-T
+    "u","v","w","x","y","z"                   // Lowercase letters u-z
 };
+//const char* alphabet[ALPHABET_SIZE] = {
+//    "0","1","2","3","4","5","6","7","8","9",  // Digits 0-9
+//    "A","B","C","D","E","F","G","H","I","J",  // Uppercase letters A-J
+//    "K","L","M","N","O","P","Q","R","S","T",  // Uppercase letters K-T
+//    "U","V","W","X","Y","Z","a","b","c","d",  // Uppercase U-Z and lowercase a-d
+//    "e","f","g","h","i","j","k","l","m","n",  // Lowercase e-n
+//    "o","p","q","r","s","t","u","v","w","x",  // Lowercase o-x
+//    "y","z"                                   // Lowercase y-z
+//};
 
 // Function Declarations
 
@@ -131,7 +137,7 @@ void cleanupMemory() {
     free(speed);           // Free the array holding speeds per column
     free(isActive);        // Free the array tracking active columns
     free(headGlyphIndex);
-    free(yAccum);
+    free(VerticalAccumulator);
 
     // Free the 2D array holding SDL_Rect for each glyph per column
     if (glyph) {
@@ -197,28 +203,73 @@ void render_glyph_trails() {
                 float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;  // Quadratic fade for smoothness
                 SDL_Texture* texture = gTextures[glyph->glyphIndex].head;  // Texture of the glyph
 
+                // --- Solid White Head Glyph 10% Bigger, Non-Flickering ---
                 if (glyph->isHead) {
-                    // --- Additive halo glow ---
-                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
-                    SDL_SetRenderDrawColor(app.renderer, 0, 255, 0, 80);  // Semi-transparent green
-                    SDL_Rect glowRect = glyph->rect;
-                    int haloSize = 8;
-                    glowRect.x -= haloSize / 2;
-                    glowRect.y -= haloSize / 2;
-                    glowRect.w += haloSize;
-                    glowRect.h += haloSize;
-                    SDL_RenderFillRect(app.renderer, &glowRect);
-
-                    // --- Render head glyph with bright alpha ---
-                    SDL_SetTextureColorMod(texture, 255, 255, 255);  // Full white
-                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
-                    if (brightAlpha > 255) brightAlpha = 255;
-                    SDL_SetTextureAlphaMod(texture, brightAlpha);
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
-
-                    // --- Reset blend mode ---
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+
+                    // Ensure texture is fully white and opaque
+                    SDL_SetTextureColorMod(texture, 255, 255, 255);
+                    SDL_SetTextureAlphaMod(texture, 255);
+
+                    // 10% bigger rect
+                    SDL_Rect biggerRect = glyph->rect;
+                    int dw = (int)(biggerRect.w * 0.10f);  // 10% width increase
+                    int dh = (int)(biggerRect.h * 0.10f);  // 10% height increase
+                    biggerRect.x -= dw / 2;                // center it
+                    biggerRect.y -= dh / 2;
+                    biggerRect.w += dw;
+                    biggerRect.h += dh;
+
+                    // Render the head glyph
+                    SDL_RenderCopy(app.renderer, texture, NULL, &biggerRect);
                 }
+
+                //// --- Render Whiter Head Glyph with Halo Glow ---
+                //if (glyph->isHead) {
+                //    // Set additive blending for glow
+                //    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
+
+                //    // --- Render the head glyph itself with full white ---
+                //    SDL_SetTextureColorMod(texture, 255, 255, 255);   // full white
+                //    SDL_SetTextureAlphaMod(texture, 255);            // full alpha
+                //    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+
+                //    // Optional: subtle duplicate render to intensify glow
+                //    SDL_SetTextureAlphaMod(texture, 128);
+                //    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+
+                //    // Reset blend mode for other glyphs
+                //    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+                //}
+
+                //White Head glyph
+                //if (glyph->isHead) {
+                //    // --- Additive halo glow ---
+                //    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
+                //    SDL_SetRenderDrawColor(app.renderer, 255, 255, 255, 64);  // Semi-transparent white
+                //    //SDL_SetRenderDrawColor(app.renderer, 0, 0, 255, 64);  // Semi-transparent blue
+                //    //SDL_SetRenderDrawColor(app.renderer, 255, 0, 0, 64);  // Semi-transparent red
+                //    //SDL_SetRenderDrawColor(app.renderer, 0, 255, 0, 80);  // Semi-transparent green
+                //    SDL_Rect glowRect = glyph->rect;
+                //    int haloSize = 8;
+                //    glowRect.x -= haloSize / 2;
+                //    glowRect.y -= haloSize / 2;
+                //    glowRect.w += haloSize;
+                //    glowRect.h += haloSize;
+                //    SDL_RenderFillRect(app.renderer, &glowRect);
+
+                //    // --- Render head glyph with bright alpha ---
+                //    SDL_SetTextureColorMod(texture, 255, 255, 255);  // Full white
+                //    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
+                //    if (brightAlpha > 255) brightAlpha = 255;
+                //    SDL_SetTextureAlphaMod(texture, brightAlpha);
+                //    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+
+                //    // --- Reset blend mode ---
+                //    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+                //}
+
+                // Green - body and tail
                 else {
                     // Clamp fade factor
                     fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f);
@@ -226,14 +277,14 @@ void render_glyph_trails() {
                     // Optional: small additive glow for trail
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
                     SDL_SetRenderDrawColor(app.renderer, 0, 200, 0, (Uint8)(fadeFactor * 50));
-                    SDL_Rect trailGlow = glyph->rect;
-                    SDL_RenderFillRect(app.renderer, &trailGlow);
+                    SDL_RenderFillRect(app.renderer, &glyph->rect);  // use original rect
                     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
 
                     // Modulate green channel of the white texture
-                    SDL_SetTextureColorMod(texture, 0, (Uint8)(fadeFactor * 255), 0);
-                    SDL_SetTextureAlphaMod(texture, 255);  // full alpha
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+                    SDL_SetTextureColorMod(texture, 0, (Uint8)(fadeFactor * 200), 0);
+                    SDL_SetTextureAlphaMod(texture, 255);  // fully opaque
+
+                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);  // original rect
                 }
                 
                 glyph->isHead = false;  // Reset head flag after first render
@@ -260,7 +311,7 @@ void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float init
 }
 
 int spawn(SDL_Rect** glyph) {
-    if (freeIndexCount <= 0) return -1;  // Optimization: if nothing free, skip entirely
+    if (freeIndexCount <= 0) return -1;  // nothing free, skip
 
     int randomIndex;
     int maxTries = 10;
@@ -268,39 +319,32 @@ int spawn(SDL_Rect** glyph) {
     // Try up to 10 random columns until finding one that is not active
     for (int tries = 0; tries < maxTries; tries++) {
         randomIndex = rand() % RANGE;
-        if (!isActive[randomIndex]) goto found;  // If found a free column, proceed
+        if (!isActive[randomIndex]) goto found;  // free column found
     }
 
-    // If no free random column was found after retries, fall back to freeIndexList
-    if (freeIndexCount <= 0) return -1;  // If still no options, give up
-    randomIndex = freeIndexList[--freeIndexCount];  // Take one from the free list
+    // fallback: take from freeIndexList
+    if (freeIndexCount <= 0) return -1;
+    randomIndex = freeIndexList[--freeIndexCount];
     goto found;
 
 found:
     headGlyphIndex[randomIndex] = rand() % ALPHABET_SIZE;
 
-    int spawnX = mn[randomIndex];  // Get horizontal X position for this column
-    int columnIndex = spawnX / CHAR_SPACING;  // Calculate the column index based on spacing
+    int spawnX = mn[randomIndex];
 
-    columnOccupied[columnIndex] = 1;  // Mark this column as occupied
+    columnOccupied[randomIndex] = 1;  // ✅ use randomIndex directly
 
-    glyph[randomIndex][0].x = spawnX;  // Set X position of the first glyph in this column
-    glyph[randomIndex][0].y = glyph_START_Y;  // Set Y start position above the screen
-
-    int glyphHeight = emptyTextureHeight;  // Get glyph texture height for vertical spacing
-
-    // Assign a random speed multiplier (1.0, 1.25, or 1.5) for this column
-    speed[randomIndex] = (rand() % 3 + 1) * 0.5f;
-
-    // Initialize all glyph rectangles in the column with their position and size
     glyph[randomIndex][0].x = spawnX;
     glyph[randomIndex][0].y = glyph_START_Y;
     glyph[randomIndex][0].w = emptyTextureWidth;
     glyph[randomIndex][0].h = emptyTextureHeight;
 
-    isActive[randomIndex] = 1;  // Mark this column as active (currently displaying glyphs)
+    // random speed selection
+    speed[randomIndex] = (rand() % 3 == 0) ? 0.5f : (rand() % 2 ? 1.0f : 2.0f);
 
-    // Remove from freeIndexList if still present (cleanup in case it was listed)
+    isActive[randomIndex] = 1;
+
+    // Remove from freeIndexList if still present
     for (int i = 0; i < freeIndexCount; i++) {
         if (freeIndexList[i] == randomIndex) {
             freeIndexList[i] = freeIndexList[--freeIndexCount];
@@ -308,7 +352,7 @@ found:
         }
     }
 
-    return randomIndex;  // Return the index of the spawned column
+    return randomIndex;
 }
 
 int move(SDL_Rect** glyph, int i) {
@@ -316,26 +360,18 @@ int move(SDL_Rect** glyph, int i) {
     if (!glyph || !glyph[i]) return i;
     if (!isActive[i]) return i;
 
-    // Accumulate pixel movement
     float movement = app.dy * speed[i];
-    yAccum[i] += movement;
+    VerticalAccumulator[i] += movement;
 
     int cellH = emptyTextureHeight;
 
-    // Only do work once we've crossed at least one full cell
-    if (yAccum[i] >= cellH) {
-        int cellSteps = (int)(yAccum[i] / cellH);
-        yAccum[i] -= cellSteps * cellH;
+    if (VerticalAccumulator[i] >= cellH) {
+        int cellSteps = (int)(VerticalAccumulator[i] / cellH);
+        VerticalAccumulator[i] -= cellSteps * cellH;
 
-        // Column index by X (clamped)
-        int columnIndex = glyph[i][0].x / CHAR_SPACING;
-        if (columnIndex < 0) columnIndex = 0;
-        else if (columnIndex >= RANGE) columnIndex = RANGE - 1;
-
-        // Remember where the head was before advancing
         int baseY = glyph[i][0].y;
 
-        // Spawn every skipped cell so there are no visual gaps at >1.0 speeds
+        // spawn trail glyphs for each skipped cell
         for (int step = 0; step < cellSteps; ++step) {
             SDL_Rect stepRect = glyph[i][0];
             stepRect.y = baseY + step * cellH;
@@ -346,24 +382,22 @@ int move(SDL_Rect** glyph, int i) {
             }
             headGlyphIndex[i] = newGlyph;
 
-            // Only the last spawned one is the *head* (bright glow)
             bool isLast = (step == cellSteps - 1);
-            spawnStaticGlyph(columnIndex, headGlyphIndex[i], stepRect, 1.0f, isLast);
+            spawnStaticGlyph(i, headGlyphIndex[i], stepRect, 1.0f, isLast);
         }
 
-        // ✅ Advance the head exactly once by the total stepped cells
         glyph[i][0].y = baseY + cellSteps * cellH;
 
-        // Deactivate if past bottom; trail will fade naturally
+        // deactivate if past bottom
         if (glyph[i][0].y >= DM.h) {
             isActive[i] = 0;
             headGlyphIndex[i] = -1;
-            columnOccupied[columnIndex] = 0;
+            columnOccupied[i] = 0;   // ✅ use i directly
 
             if (freeIndexCount < RANGE) {
                 freeIndexList[freeIndexCount++] = i;
             }
-            yAccum[i] = 0.0f; // reset accumulator for next time this column is used
+            VerticalAccumulator[i] = 0.0f;
         }
     }
 
@@ -378,7 +412,7 @@ void initialize() {
 
     SDL_GetCurrentDisplayMode(0, &DM);  // Get current display resolution into DM struct
 
-    RANGE = DM.w / CHAR_SPACING;  // Calculate how many columns fit horizontally on the screen based on character spacing
+    RANGE = (DM.w + CHAR_SPACING - 1) / CHAR_SPACING;  // Calculate how many columns fit horizontally on the screen based on character spacing
 
     // Allocate arrays for tracking glyph columns and properties
     mn = malloc(RANGE * sizeof(int));               // Stores the X position for each column (multiples of CHAR_SPACING)
@@ -390,7 +424,7 @@ void initialize() {
     trailCapacities = malloc(RANGE * sizeof(int));  // Capacity for fading trails per column (usually fixed size)
     fadingTrails = malloc(RANGE * sizeof(StaticGlyph*));  // Array of pointers for trails per column
     headGlyphIndex = malloc(RANGE * sizeof(int));
-    yAccum = calloc(RANGE, sizeof(float));
+    VerticalAccumulator = calloc(RANGE, sizeof(float));
 
     for (int i = 0; i < RANGE; i++) {
         mn[i] = i * CHAR_SPACING;             // Assign X position of each column as multiples of CHAR_SPACING
@@ -402,13 +436,13 @@ void initialize() {
         trailCapacities[i] = 256;             // Set fading trail capacity per column to 256 glyphs
         fadingTrails[i] = malloc(256 * sizeof(StaticGlyph));  // Allocate memory for each column’s fading trail glyphs
         headGlyphIndex[i] = -1;
-        yAccum[i] = 0.0f;
+        VerticalAccumulator[i] = 0.0f;
     }
 
     freeIndexCount = RANGE;  // Set count of free columns equal to total columns
 
     // Create the SDL window with fullscreen desktop resolution and centered position
-    app.window = SDL_CreateWindow("Matrix glyph", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DM.w, DM.h, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    app.window = SDL_CreateWindow("Matrix-Code Rain", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DM.w, DM.h, SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     // Create an accelerated renderer with vertical sync enabled
     app.renderer = SDL_CreateRenderer(app.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -439,6 +473,77 @@ void initialize() {
     if (music) Mix_PlayMusic(music, -1);  // If music loaded successfully, play it in a loop indefinitely
 }
 
+//Without spawn modulation
+//int main(int argc, char* argv[]) {
+//    initialize();  // Initialize SDL, audio, fonts, window, renderer, textures, and globals
+//
+//    float accumulator = 0.0f;
+//    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP;
+//
+//    Uint32 previousTime = SDL_GetTicks();
+//    srand((unsigned int)time(NULL));
+//
+//    while (app.running) {
+//        // --- Timing ---
+//        Uint32 frameStart = SDL_GetTicks();
+//        float frameTime = (float)(frameStart - previousTime);
+//        previousTime = frameStart;
+//        accumulator += frameTime;
+//
+//        // --- Event handling ---
+//        SDL_Event e;
+//        while (SDL_PollEvent(&e)) {
+//            if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
+//                app.running = 0;
+//        }
+//
+//        // --- Fixed-step simulation updates ---
+//        while (accumulator >= SIMULATION_STEP) {
+//            // --- Spawn glyphs ---
+//            // 
+//            // Simply spawn 1 to 3 glyphs randomly per step
+//            //int spawnCount = (rand() % 3) + 1; // 1, 2, or 3
+//            
+//            // 1 or 2 with equal probability.
+//            //int spawnCount = 1 + (rand() % 2);
+//            
+//            //a 90% chance of 1 and 10% chance of 2
+//            //int spawnCount = (rand() % 100 < 90) ? 1 : 2;
+//
+//            //int spawnCount = (rand() % 2) ? 3 : 1;  // 50% chance of 1, 50% chance of 3
+//
+//            //a 95% chance of 1 and 5% chance of 2
+//            int spawnCount = (rand() % 100 < 95) ? 1 : 3;
+//
+//            for (int i = 0; i < spawnCount; i++) {
+//                spawn(glyph);  // returns -1 if no column is free
+//            }
+//
+//            // Move all glyphs
+//            for (int i = 0; i < RANGE; i++) move(glyph, i);
+//
+//            accumulator -= SIMULATION_STEP;
+//        }
+//
+//        // --- Rendering ---
+//        SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);
+//        SDL_RenderClear(app.renderer);
+//
+//        render_glyph_trails();
+//
+//        SDL_RenderPresent(app.renderer);
+//
+//        // --- Frame rate cap at 60 FPS ---
+//        Uint32 frameDuration = SDL_GetTicks() - frameStart;
+//        if (frameDuration < 1000 / 60) {
+//            SDL_Delay((1000 / 60) - frameDuration);
+//        }
+//    }
+//
+//    terminate(0);
+//}
+
+//Tweaked with SpawnCount Modulation between 1 and 4
 int main(int argc, char* argv[]) {
     initialize();  // Initialize SDL, audio, fonts, window, renderer, textures, and globals
 
@@ -449,11 +554,11 @@ int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
 
     // --- Local gradual wave variables ---
-    float spawnValue = 1.0f;          // starting value
-    const float SPAWN_MIN = 1;
-    const float SPAWN_MAX = 4;
-    const float SPAWN_STEP = 0.05f;   // max change per step
-    const float JITTER = 0.2f;        // small random flicker
+    float spawnValue = 2.0f;          // Start near the middle
+    const float SPAWN_MIN = 1.0f;
+    const float SPAWN_MAX = 4.0f;
+    const float SPAWN_STEP = 0.05f;   // Max change per step
+    const float JITTER = 0.15f;       // Small flicker noise
 
     while (app.running) {
         // --- Timing ---
@@ -472,7 +577,7 @@ int main(int argc, char* argv[]) {
         // --- Fixed-step simulation updates ---
         while (accumulator >= SIMULATION_STEP) {
             // Gradual wave with jitter
-            float delta = ((rand() % 100) / 100.0f * 2 - 1) * SPAWN_STEP; // drift
+            float delta = ((rand() % 100) / 100.0f * 2 - 1) * SPAWN_STEP; // smooth drift
             float jitter = ((rand() % 100) / 100.0f * 2 - 1) * JITTER;    // tiny flicker
             spawnValue += delta + jitter;
 
@@ -480,7 +585,7 @@ int main(int argc, char* argv[]) {
             if (spawnValue < SPAWN_MIN) spawnValue = SPAWN_MIN;
             if (spawnValue > SPAWN_MAX) spawnValue = SPAWN_MAX;
 
-            // Determine how many glyphs to attempt spawning
+            // Determine how many glyphs to attempt spawning (1–3)
             int spawnCount = (int)(spawnValue + 0.5f);
 
             // Spawn glyphs; spawn() handles free column availability
@@ -489,7 +594,9 @@ int main(int argc, char* argv[]) {
             }
 
             // Move all glyphs
-            for (int i = 0; i < RANGE; i++) move(glyph, i);
+            for (int i = 0; i < RANGE; i++) {
+                move(glyph, i);
+            }
 
             accumulator -= SIMULATION_STEP;
         }
@@ -511,4 +618,3 @@ int main(int argc, char* argv[]) {
 
     terminate(0);
 }
-
