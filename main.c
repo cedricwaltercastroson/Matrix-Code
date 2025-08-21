@@ -12,7 +12,7 @@
 #define Increment                   30         // Number of glyphs in a column trail
 #define DEFAULT_SIMULATION_STEP     30         // Simulation update step in ms (~33ms = 30 FPS)
 #define ALPHABET_SIZE               36//62         // Number of glyphs (digits + upper + lower case)
-#define FadeTime                    0.005f      // Time decrement for glyph fade effect
+#define FadeDistance                3000.0f      // Time decrement for glyph fade effect
 
 // Global variables related to glyph columns and trails
 int* mn;                    // X positions of glyph columns (array of ints)
@@ -187,117 +187,21 @@ void terminate(int exit_code) {
     exit(exit_code);  // Exit the program with the specified code
 }
 
-void render_glyph_trails() {
-    for (int col = 0; col < RANGE; col++) {
-        int count = trailCounts[col];
-        int writeIndex = 0;
-
-        for (int g = 0; g < count; g++) {
-            StaticGlyph* glyph = &fadingTrails[col][g];
-            glyph->fadeTimer -= FadeTime;
-
-            if (glyph->fadeTimer > 0.0f) {
-                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer; // quadratic fade
-                SDL_Texture* texture = gTextures[glyph->glyphIndex].head;
-
-                if (glyph->isHead) {
-                    // --- Bigger head glyph (10% larger) ---
-                    SDL_SetTextureColorMod(texture, 255, 255, 255);
-                    SDL_SetTextureAlphaMod(texture, 255);
-
-                    SDL_Rect biggerRect = glyph->rect;
-                    int dw = (int)(biggerRect.w * 0.10f);
-                    int dh = (int)(biggerRect.h * 0.10f);
-                    biggerRect.x -= dw / 2;
-                    biggerRect.y -= dh / 2;
-                    biggerRect.w += dw;
-                    biggerRect.h += dh;
-
-                    SDL_RenderCopy(app.renderer, texture, NULL, &biggerRect);
-
-                    // --- Crisp head glyph on top ---
-                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
-                    if (brightAlpha > 255) brightAlpha = 255;
-                    SDL_SetTextureAlphaMod(texture, brightAlpha);
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
-                }
-                else {
-                    // Clamp fade factor
-                    fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f);
-
-                    Uint8 r, g, b, a;
-                    const float whiteThreshold = 0.9f;
-
-                    if (fadeFactor > whiteThreshold) {
-                        // White neck
-                        float t = (fadeFactor - whiteThreshold) / (1.0f - whiteThreshold);
-                        r = g = b = (Uint8)(128 + t * (200 - 128));
-                        a = 255;
-                    }
-                    else {
-                        // Green trail
-                        float t = fadeFactor / whiteThreshold;
-                        r = 0;
-                        g = (Uint8)(t * 128);
-                        b = 0;
-                        a = 255;
-                    }
-
-                    // Optional: small additive glow for trail
-                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
-                    SDL_SetRenderDrawColor(app.renderer, r, g, b, (Uint8)(fadeFactor * 50));
-                    SDL_RenderFillRect(app.renderer, &glyph->rect);
-                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
-
-                    SDL_SetTextureColorMod(texture, r, g, b);
-                    SDL_SetTextureAlphaMod(texture, a);
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
-                }
-
-                glyph->isHead = false;
-                fadingTrails[col][writeIndex++] = *glyph;
-            }
-        }
-        trailCounts[col] = writeIndex;
-    }
-}
-
-//With Halo
+//Bright White transition to almost alpha 128 white then green
 //void render_glyph_trails() {
-//    // PASS 1: Draw all halos first
-//    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
 //
-//    for (int col = 0; col < RANGE; col++) {
-//        int count = trailCounts[col];
-//        for (int g = 0; g < count; g++) {
-//            StaticGlyph* glyph = &fadingTrails[col][g];
-//            if (glyph->fadeTimer > 0.0f && glyph->isHead) {
-//                SDL_Rect glowRect = glyph->rect;
-//                int haloSize = 8;
-//                glowRect.x -= haloSize / 2;
-//                glowRect.y -= haloSize / 2;
-//                glowRect.w += haloSize;
-//                glowRect.h += haloSize;
-//
-//                SDL_SetRenderDrawColor(app.renderer, 255, 255, 255, 80);
-//                SDL_RenderFillRect(app.renderer, &glowRect);
-//            }
-//        }
-//    }
-//
-//    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
-//
-//    // PASS 2: Draw glyphs and trails
 //    for (int col = 0; col < RANGE; col++) {
 //        int count = trailCounts[col];
 //        int writeIndex = 0;
 //
 //        for (int g = 0; g < count; g++) {
 //            StaticGlyph* glyph = &fadingTrails[col][g];
-//            glyph->fadeTimer -= FadeTime;
+//
+//            // Fade proportional to movement so trail length in pixels is constant
+//            glyph->fadeTimer -= (app.dy * speed[col]) / FadeDistance;
 //
 //            if (glyph->fadeTimer > 0.0f) {
-//                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;
+//                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer; // quadratic fade
 //                SDL_Texture* texture = gTextures[glyph->glyphIndex].head;
 //
 //                if (glyph->isHead) {
@@ -315,27 +219,22 @@ void render_glyph_trails() {
 //
 //                    SDL_RenderCopy(app.renderer, texture, NULL, &biggerRect);
 //
-//                    // --- Crisp head glyph on top ---
 //                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
 //                    if (brightAlpha > 255) brightAlpha = 255;
 //                    SDL_SetTextureAlphaMod(texture, brightAlpha);
 //                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
 //                }
 //                else {
-//                    // Clamp fade factor
 //                    fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f);
-//
 //                    Uint8 r, g, b, a;
 //                    const float whiteThreshold = 0.9f;
 //
 //                    if (fadeFactor > whiteThreshold) {
-//                        // White neck
 //                        float t = (fadeFactor - whiteThreshold) / (1.0f - whiteThreshold);
 //                        r = g = b = (Uint8)(128 + t * (200 - 128));
 //                        a = 255;
 //                    }
 //                    else {
-//                        // Green trail
 //                        float t = fadeFactor / whiteThreshold;
 //                        r = 0;
 //                        g = (Uint8)(t * 128);
@@ -343,7 +242,6 @@ void render_glyph_trails() {
 //                        a = 255;
 //                    }
 //
-//                    // Trail glow
 //                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
 //                    SDL_SetRenderDrawColor(app.renderer, r, g, b, (Uint8)(fadeFactor * 50));
 //                    SDL_RenderFillRect(app.renderer, &glyph->rect);
@@ -361,6 +259,83 @@ void render_glyph_trails() {
 //        trailCounts[col] = writeIndex;
 //    }
 //}
+
+//Cyanish Green head
+void render_glyph_trails() {
+    for (int col = 0; col < RANGE; col++) {
+        int count = trailCounts[col];
+        int writeIndex = 0;
+
+        for (int g = 0; g < count; g++) {
+            StaticGlyph* glyph = &fadingTrails[col][g];
+
+            glyph->fadeTimer -= (app.dy * speed[col]) / FadeDistance;
+
+            if (glyph->fadeTimer > 0.0f) {
+                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;
+                SDL_Texture* texture = gTextures[glyph->glyphIndex].head;
+
+                if (glyph->isHead) {
+                    // --- Cyan-green head (10% bigger) ---
+                    SDL_SetTextureColorMod(texture, 0, 255, 200);
+                    SDL_SetTextureAlphaMod(texture, 255);
+
+                    SDL_Rect biggerRect = glyph->rect;
+                    int dw = (int)(biggerRect.w * 0.10f);
+                    int dh = (int)(biggerRect.h * 0.10f);
+                    biggerRect.x -= dw / 2;
+                    biggerRect.y -= dh / 2;
+                    biggerRect.w += dw;
+                    biggerRect.h += dh;
+
+                    SDL_RenderCopy(app.renderer, texture, NULL, &biggerRect);
+
+                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100;
+                    if (brightAlpha > 255) brightAlpha = 255;
+                    SDL_SetTextureAlphaMod(texture, brightAlpha);
+                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+                }
+                else {
+                    fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f);
+                    Uint8 r, g, b, a;
+                    //const float brightThreshold = 0.75f; //Longer neck
+                    const float brightThreshold = 0.9f; // Shorter neck
+
+                    if (fadeFactor > brightThreshold) {
+                        // Bright phase: cyan-green -> pure green
+                        float t = (fadeFactor - brightThreshold) / (1.0f - brightThreshold);
+                        r = 0;
+                        g = (Uint8)(128 + t * (200 - 128)); // green: 128 → 200
+                        b = (Uint8)(t * 128);                // blue: 128 → 0
+                        a = 255;
+                    }
+                    else {
+                        // Normal green fade to black
+                        float t = fadeFactor / brightThreshold;
+                        r = 0;
+                        //g = (Uint8)(t * 128); // green: 128 → 0
+                        g = (Uint8)(t * 128); // green: 128 → 0
+                        b = 0;
+                        a = 255;
+                    }
+
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
+                    SDL_SetRenderDrawColor(app.renderer, r, g, b, (Uint8)(fadeFactor * 50));
+                    SDL_RenderFillRect(app.renderer, &glyph->rect);
+                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+
+                    SDL_SetTextureColorMod(texture, r, g, b);
+                    SDL_SetTextureAlphaMod(texture, a);
+                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+                }
+
+                glyph->isHead = false;
+                fadingTrails[col][writeIndex++] = *glyph;
+            }
+        }
+        trailCounts[col] = writeIndex;
+    }
+}
 
 void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead) {
     // Check if the trail array for this column has reached its maximum capacity
@@ -423,76 +398,21 @@ found:
 }
 
 //Original - Working
-int move(SDL_Rect** glyph, int i) {
-    if (i < 0 || i >= RANGE) return i;
-    if (!glyph || !glyph[i]) return i;
-    if (!isActive[i]) return i;
-
-    float movement = app.dy * speed[i];
-    VerticalAccumulator[i] += movement;
-
-    int cellH = emptyTextureHeight;
-
-    if (VerticalAccumulator[i] >= cellH) {
-        int cellSteps = (int)(VerticalAccumulator[i] / cellH);
-        VerticalAccumulator[i] -= cellSteps * cellH;
-
-        int baseY = glyph[i][0].y;
-
-        // spawn trail glyphs for each skipped cell
-        for (int step = 0; step < cellSteps; ++step) {
-            SDL_Rect stepRect = glyph[i][0];
-            stepRect.y = baseY + step * cellH;
-
-            int newGlyph = rand() % ALPHABET_SIZE;
-            if (headGlyphIndex[i] >= 0 && newGlyph == headGlyphIndex[i]) {
-                newGlyph = (newGlyph + 1) % ALPHABET_SIZE;
-            }
-            headGlyphIndex[i] = newGlyph;
-
-            bool isLast = (step == cellSteps - 1);
-            spawnStaticGlyph(i, headGlyphIndex[i], stepRect, 1.0f, isLast);
-        }
-
-        glyph[i][0].y = baseY + cellSteps * cellH;
-
-        // deactivate if past bottom
-        if (glyph[i][0].y >= DM.h) {
-            isActive[i] = 0;
-            headGlyphIndex[i] = -1;
-            columnOccupied[i] = 0;   // use i directly
-
-            if (freeIndexCount < RANGE) {
-                freeIndexList[freeIndexCount++] = i;
-            }
-            VerticalAccumulator[i] = 0.0f;
-        }
-    }
-
-    return i;
-}
-
-//a tad different behaviour like there is a stepping involved.
 //int move(SDL_Rect** glyph, int i) {
 //    if (i < 0 || i >= RANGE) return i;
 //    if (!glyph || !glyph[i]) return i;
 //    if (!isActive[i]) return i;
 //
-//    int cellH = emptyTextureHeight;
-//    int baseY = glyph[i][0].y;
-//
-//    // Adjust movement per frame for high speeds to maintain visual stepping
 //    float movement = app.dy * speed[i];
-//    if (speed[i] > 0.5f) {
-//        // Scale movement so it feels visually like 0.5 stepping
-//        movement = app.dy * (0.5f + (speed[i] - 0.5f) * 0.5f);
-//    }
-//
 //    VerticalAccumulator[i] += movement;
+//
+//    int cellH = emptyTextureHeight;
 //
 //    if (VerticalAccumulator[i] >= cellH) {
 //        int cellSteps = (int)(VerticalAccumulator[i] / cellH);
 //        VerticalAccumulator[i] -= cellSteps * cellH;
+//
+//        int baseY = glyph[i][0].y;
 //
 //        // spawn trail glyphs for each skipped cell
 //        for (int step = 0; step < cellSteps; ++step) {
@@ -509,14 +429,13 @@ int move(SDL_Rect** glyph, int i) {
 //            spawnStaticGlyph(i, headGlyphIndex[i], stepRect, 1.0f, isLast);
 //        }
 //
-//        // Snap head to last spawned glyph
 //        glyph[i][0].y = baseY + cellSteps * cellH;
 //
 //        // deactivate if past bottom
 //        if (glyph[i][0].y >= DM.h) {
 //            isActive[i] = 0;
 //            headGlyphIndex[i] = -1;
-//            columnOccupied[i] = 0;
+//            columnOccupied[i] = 0;   // use i directly
 //
 //            if (freeIndexCount < RANGE) {
 //                freeIndexList[freeIndexCount++] = i;
@@ -527,6 +446,51 @@ int move(SDL_Rect** glyph, int i) {
 //
 //    return i;
 //}
+
+//Working with better stepping.. which fixes the cellH going down
+int move(SDL_Rect** glyph, int i) {
+    if (i < 0 || i >= RANGE) return i;
+    if (!glyph || !glyph[i]) return i;
+    if (!isActive[i]) return i;
+
+    int cellH = emptyTextureHeight;
+    float movement = app.dy * speed[i];
+
+    // Accumulate movement
+    VerticalAccumulator[i] += movement;
+
+    // Only move when a full cell height is accumulated
+    while (VerticalAccumulator[i] >= cellH) {
+        VerticalAccumulator[i] -= cellH;
+
+        SDL_Rect stepRect = glyph[i][0];
+        stepRect.y += cellH;
+
+        int newGlyph = rand() % ALPHABET_SIZE;
+        if (headGlyphIndex[i] >= 0 && newGlyph == headGlyphIndex[i]) {
+            newGlyph = (newGlyph + 1) % ALPHABET_SIZE;
+        }
+        headGlyphIndex[i] = newGlyph;
+
+        spawnStaticGlyph(i, headGlyphIndex[i], stepRect, 1.0f, true);
+
+        glyph[i][0].y += cellH;
+
+        // If past bottom, deactivate
+        if (glyph[i][0].y >= DM.h) {
+            isActive[i] = 0;
+            headGlyphIndex[i] = -1;
+            columnOccupied[i] = 0;
+            if (freeIndexCount < RANGE) {
+                freeIndexList[freeIndexCount++] = i;
+            }
+            VerticalAccumulator[i] = 0.0f;
+            break;
+        }
+    }
+
+    return i;
+}
 
 void initialize() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) terminate(1);  // Initialize SDL video and audio subsystems; exit on failure
@@ -623,7 +587,9 @@ int main(int argc, char* argv[]) {
         // --- Fixed-step simulation updates ---
         while (accumulator >= SIMULATION_STEP) {
             // Determine spawnCount: either 1 or 2
-            int spawnCount = 1;// (rand() % 2 == 0) ? 1 : 2;
+            int spawnCount = (rand() % 2 == 0) ? 1 : 2;
+
+            //int spawnCount = 1;
 
             // Spawn glyphs
             for (int i = 0; i < spawnCount; i++) {
