@@ -9,20 +9,31 @@
 #define FONT_SIZE                   26          // Size of each glyph in pixels
 #define CHAR_SPACING                16          // Horizontal spacing between columns
 #define glyph_START_Y               -25         // Y-coordinate where glyphs start off-screen
-#define DEFAULT_SIMULATION_STEP     30          // Time step in ms for updates (~33ms = 30 FPS)
+#define DEFAULT_SIMULATION_STEP     15          // Time step in ms for updates (~33ms = 30 FPS)
 #define ALPHABET_SIZE               62          // Total number of glyphs (digits + letters)
 #define FadeDistance                3000.0f     // Fade speed denominator for glyph trails
 
 // Global variables for glyph columns and trails
-int* mn;                    // Array storing X positions for each glyph column
-int RANGE = 0;              // Total number of columns (calculated from screen width)
-int* isActive;              // Array: 1 if column is active, 0 if inactive
-int* headGlyphIndex = NULL; // Array storing current head glyph index per column (-1 = none)
-int* columnOccupied;        // Flags: 1 if column is occupied, 0 if free
-int* freeIndexList;         // Array of free column indices available for spawning
-int freeIndexCount = 0;     // Number of free columns currently available
-float* speed;               // Array of speed multipliers for each column
-float* VerticalAccumulator = NULL; // Accumulates vertical movement per column
+int* mn;                            // Array storing X positions for each glyph column
+int RANGE = 0;                      // Total number of columns (calculated from screen width)
+int* isActive;                      // Array: 1 if column is active, 0 if inactive
+int* headGlyphIndex = NULL;         // Array storing current head glyph index per column (-1 = none)
+int* columnOccupied;                // Flags: 1 if column is occupied, 0 if free
+int* freeIndexList;                 // Array of free column indices available for spawning
+int freeIndexCount = 0;             // Number of free columns currently available
+int simulationStepValue = DEFAULT_SIMULATION_STEP; // 30 by default
+float* speed;                       // Array of speed multipliers for each column
+float* VerticalAccumulator = NULL;  // Accumulates vertical movement per column
+float WaveHue = 0.0f;            // Incremented each frame
+float* RainbowColumnHue = NULL;     // hue for each column
+float v2Speed = 1.0f;               // RainbowV2 transition speed
+int headColorMode = 0;
+// 0 = green
+// 1 = red
+// 2 = blue
+// 3 = white
+// 4 = rainbow
+// 5 = rainbowv2
 
 // Empty texture dimensions (used for spacing)
 int emptyTextureWidth, emptyTextureHeight;
@@ -113,6 +124,7 @@ void cleanupMemory() {
     free(isActive);        // Free array tracking active columns
     free(headGlyphIndex);  // Free array storing head glyph indices
     free(VerticalAccumulator); // Free accumulated vertical movement per column
+    free(RainbowColumnHue);     // Free rainbow column hue
 
     // Free 2D array of glyph rectangles per column
     if (glyph) {
@@ -163,77 +175,145 @@ void terminate(int exit_code) {
     exit(exit_code);             // Exit program with given code
 }
 
-// Renders all glyphs in fading trails with color, alpha, and head effects
-void render_glyph_trails() {
-    for (int col = 0; col < RANGE; col++) {                      // Loop over each column
-        int count = trailCounts[col];                            // Get number of glyphs currently in trail
-        int writeIndex = 0;                                      // Index to rewrite surviving glyphs after fading
+// Convert hue [0-360] to RGB (0-255)
+void hueToRGBf(float H, float* r, float* g, float* b) {
+    float C = 1.0f;
+    float X = 1.0f - fabs(fmodf(H / 60.0f, 2) - 1.0f);
+    float R1 = 0, G1 = 0, B1 = 0;
 
-        for (int g = 0; g < count; g++) {                        // Loop over each glyph in the trail
-            StaticGlyph* glyph = &fadingTrails[col][g];         // Pointer to current glyph
+    if (H < 60) { R1 = C; G1 = X; B1 = 0; }
+    else if (H < 120) { R1 = X; G1 = C; B1 = 0; }
+    else if (H < 180) { R1 = 0; G1 = C; B1 = X; }
+    else if (H < 240) { R1 = 0; G1 = X; B1 = C; }
+    else if (H < 300) { R1 = X; G1 = 0; B1 = C; }
+    else { R1 = C; G1 = 0; B1 = X; }
 
-            glyph->fadeTimer -= (app.dy * speed[col]) / FadeDistance; // Decrease fade timer proportional to movement
+    *r = R1 * 255.0f;
+    *g = G1 * 255.0f;
+    *b = B1 * 255.0f;
+}
 
-            if (glyph->fadeTimer > 0.0f) {                       // Only render if fade timer is positive
-                float fadeFactor = glyph->fadeTimer * glyph->fadeTimer; // Quadratic fade factor for smoothness
-                SDL_Texture* texture = gTextures[glyph->glyphIndex].head; // Get texture for this glyph
-
-                if (glyph->isHead) {                             // Special rendering for head glyph
-                    SDL_SetTextureColorMod(texture, 0, 255, 200); // Cyan-green color for head
-                    SDL_SetTextureAlphaMod(texture, 255);        // Fully opaque
-
-                    SDL_Rect biggerRect = glyph->rect;           // Copy rect to enlarge for head
-                    int dw = (int)(biggerRect.w * 0.10f);        // 10% width increase
-                    int dh = (int)(biggerRect.h * 0.10f);        // 10% height increase
-                    biggerRect.x -= dw / 2;                      // Center the larger rect
-                    biggerRect.y -= dh / 2;
-                    biggerRect.w += dw;
-                    biggerRect.h += dh;
-
-                    SDL_RenderCopy(app.renderer, texture, NULL, &biggerRect); // Render bigger head
-
-                    Uint8 brightAlpha = (Uint8)(fadeFactor * 255) + 100; // Extra alpha for glow
-                    if (brightAlpha > 255) brightAlpha = 255;     // Clamp to max 255
-                    SDL_SetTextureAlphaMod(texture, brightAlpha); // Set alpha for main head
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect); // Render head glyph
-                }
-                else {                                           // Rendering for normal trail glyphs
-                    fadeFactor = fminf(fmaxf(fadeFactor, 0.0f), 1.0f); // Clamp fade factor [0,1]
-                    Uint8 r, g, b, a;                            // Color variables
-
-                    const float brightThreshold = 0.9f;          // Threshold for bright phase
-
-                    if (fadeFactor > brightThreshold) {          // Bright phase: cyan-green -> green
-                        float t = (fadeFactor - brightThreshold) / (1.0f - brightThreshold);
-                        r = 0;
-                        g = (Uint8)(128 + t * (200 - 128));     // Green interpolation
-                        b = (Uint8)(t * 128);                   // Blue interpolation
-                        a = 255;
-                    }
-                    else {                                       // Normal green fade to black
-                        float t = fadeFactor / brightThreshold;
-                        r = 0;
-                        g = (Uint8)(t * 100);                   // Green fades to 0
-                        b = 0;
-                        a = 255;
-                    }
-
-                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD); // Additive blending
-                    SDL_SetRenderDrawColor(app.renderer, r, g, b, (Uint8)(fadeFactor * 50)); // Draw trail rectangle
-                    SDL_RenderFillRect(app.renderer, &glyph->rect);      // Fill trail rect
-                    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND); // Restore blend mode
-
-                    SDL_SetTextureColorMod(texture, r, g, b);            // Color mod texture
-                    SDL_SetTextureAlphaMod(texture, a);                  // Alpha mod texture
-                    SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect); // Render glyph
-                }
-
-                glyph->isHead = false;                                  // Head status ends after rendering
-                fadingTrails[col][writeIndex++] = *glyph;              // Keep glyph in trail array
-            }
-        }
-        trailCounts[col] = writeIndex;                                // Update trail count after fading
+// Update hues per frame (centralized)
+void updateHue() {
+    if (headColorMode == 4) {  // Wave
+        WaveHue += 1.0f;        // tweak speed here
+        if (WaveHue >= 360.0f) WaveHue -= 360.0f;
     }
+    else if (headColorMode == 5) { // Rainbow V2
+        for (int col = 0; col < RANGE; col++) {
+            RainbowColumnHue[col] += v2Speed + (rand() % 4); // flashy jumps
+            if (RainbowColumnHue[col] >= 360.0f) RainbowColumnHue[col] -= 360.0f;
+        }
+    }
+}
+
+// Render all fading glyph trails with dynamic fade adjustment
+void render_glyph_trails(void) {
+    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD); // additive blending
+
+    updateHue(); // update hues per frame
+
+    for (int col = 0; col < RANGE; col++) {
+        int count = trailCounts[col];
+        int writeIndex = 0;
+
+        for (int g = 0; g < count; g++) {
+            StaticGlyph* glyph = &fadingTrails[col][g];
+
+            // --- FADE UPDATE ---
+            // Fade proportional to actual pixels moved
+            glyph->fadeTimer -= (app.dy * speed[col]) / FadeDistance;
+            if (glyph->fadeTimer <= 0.0f) continue; // skip fully faded glyphs
+
+            float fadeFactor = glyph->fadeTimer * glyph->fadeTimer;
+            if (fadeFactor > 1.0f) fadeFactor = 1.0f;
+
+            SDL_Texture* texture = gTextures[glyph->glyphIndex].head;
+
+            // --- COLOR CALCULATION ---
+            float baseR = 0.0f, baseG = 128.0f, baseB = 0.0f;
+            float headR = 0.0f, headG = 200.0f, headB = 128.0f;
+
+            switch (headColorMode) {
+            case 1: // RED
+                baseR = 128; baseG = 0; baseB = 0;
+                headR = 255; headG = 80; headB = 80;
+                break;
+            case 2: // BLUE
+                baseR = 0; baseG = 0; baseB = 128;
+                headR = 80; headG = 120; headB = 255;
+                break;
+            case 3: // WHITE
+                baseR = 128; baseG = 128; baseB = 128;
+                headR = 255; headG = 255; headB = 255;
+                break;
+            case 4: // WAVE
+                hueToRGBf(WaveHue, &headR, &headG, &headB);
+                hueToRGBf(fmodf(WaveHue + 180.0f, 360.0f), &baseR, &baseG, &baseB);
+                break;
+            case 5: // RAINBOW
+                hueToRGBf(RainbowColumnHue[col], &headR, &headG, &headB);
+                hueToRGBf(fmodf(RainbowColumnHue[col] + 180.0f, 360.0f), &baseR, &baseG, &baseB);
+                break;
+            default: // GREEN
+                break;
+            }
+
+            // --- HEAD GLYPH ---
+            if (glyph->isHead) {
+                SDL_SetTextureColorMod(texture, (Uint8)headR, (Uint8)headG, (Uint8)headB);
+                SDL_SetTextureAlphaMod(texture, 255);
+
+                SDL_Rect bigRect = glyph->rect;
+                int dw = (int)(bigRect.w * 0.1f);
+                int dh = (int)(bigRect.h * 0.1f);
+                bigRect.x -= dw / 2; bigRect.y -= dh / 2;
+                bigRect.w += dw; bigRect.h += dh;
+
+                SDL_RenderCopy(app.renderer, texture, NULL, &bigRect);
+
+                Uint8 brightAlpha = (Uint8)(fadeFactor * 255 + 100);
+                SDL_SetTextureAlphaMod(texture, brightAlpha);
+                SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+            }
+            // --- TRAIL GLYPH ---
+            else {
+                const float brightThreshold = 0.9f;
+                float tBright = (fadeFactor - brightThreshold) / (1.0f - brightThreshold);
+                float tNormal = fadeFactor / brightThreshold;
+                if (tBright < 0) tBright = 0; if (tBright > 1) tBright = 1;
+                if (tNormal < 0) tNormal = 0; if (tNormal > 1) tNormal = 1;
+
+                Uint8 r, gCol, b, a = 255;
+
+                if (fadeFactor > brightThreshold) {
+                    r = (Uint8)(baseR + tBright * (headR - baseR));
+                    gCol = (Uint8)(baseG + tBright * (headG - baseG));
+                    b = (Uint8)(baseB + tBright * (headB - baseB));
+                }
+                else {
+                    r = (Uint8)(tNormal * baseR);
+                    gCol = (Uint8)(tNormal * baseG);
+                    b = (Uint8)(tNormal * baseB);
+                }
+
+                float glowFactor = powf(fadeFactor, 1.5f);
+                SDL_SetRenderDrawColor(app.renderer, r, gCol, b, (Uint8)(glowFactor * 50));
+                SDL_RenderFillRect(app.renderer, &glyph->rect);
+
+                SDL_SetTextureColorMod(texture, r, gCol, b);
+                SDL_SetTextureAlphaMod(texture, a);
+                SDL_RenderCopy(app.renderer, texture, NULL, &glyph->rect);
+            }
+
+            glyph->isHead = false;
+            fadingTrails[col][writeIndex++] = *glyph;
+        }
+
+        trailCounts[col] = writeIndex; // update count after skipping faded glyphs
+    }
+
+    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
 }
 
 // Adds a new StaticGlyph to the fading trail of a specified column
@@ -360,6 +440,7 @@ void initialize() {
     fadingTrails = malloc(RANGE * sizeof(StaticGlyph*));            // 2D array of trails per column
     headGlyphIndex = malloc(RANGE * sizeof(int));                   // Current head index per column
     VerticalAccumulator = calloc(RANGE, sizeof(float));             // Accumulated movement per column
+    RainbowColumnHue = malloc(RANGE * sizeof(float));               // ColumnHue
 
     for (int i = 0; i < RANGE; i++) {
         mn[i] = i * CHAR_SPACING;                                   // Set X position
@@ -371,7 +452,8 @@ void initialize() {
         trailCapacities[i] = 256;                                  // Max trail length
         fadingTrails[i] = malloc(256 * sizeof(StaticGlyph));       // Allocate trail memory
         headGlyphIndex[i] = -1;                                    // No head
-        VerticalAccumulator[i] = 0.0f;
+        VerticalAccumulator[i] = 0.0f;                             // Default Accumulator
+        RainbowColumnHue[i] = (float)(rand() % 360);               // random initial hue
     }
 
     freeIndexCount = RANGE;                                        // All columns free initially
@@ -410,7 +492,7 @@ int main(int argc, char* argv[]) {
     initialize();                                                   // Initialize everything
 
     float accumulator = 0.0f;                                       // Time accumulator for fixed-step simulation
-    const float SIMULATION_STEP = 1000.0f / DEFAULT_SIMULATION_STEP; // Simulation step in ms
+    float simulationStep = 1000.0f / DEFAULT_SIMULATION_STEP;       // Current step in ms
 
     Uint32 previousTime = SDL_GetTicks();                            // Previous frame time
     srand((unsigned int)time(NULL));                                 // Seed random
@@ -425,9 +507,30 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&e)) {                                   // Poll events
             if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
                 app.running = 0;                                      // Exit on quit or ESC
+
+            if (e.type == SDL_KEYDOWN) {
+                if (e.key.keysym.sym == SDLK_LEFT) {
+                    headColorMode--;
+                    if (headColorMode < 0) headColorMode = 5;   // wrap
+                }
+                if (e.key.keysym.sym == SDLK_RIGHT) {
+                    headColorMode++;
+                    if (headColorMode > 5) headColorMode = 0;   // wrap
+                }
+                if (e.key.keysym.sym == SDLK_UP) {
+                    simulationStepValue += 5;          // Increase step
+                    if (simulationStepValue > 60) simulationStepValue = 60;  // max limit
+                    simulationStep = 1000.0f / simulationStepValue;          // recalc ms
+                }
+                if (e.key.keysym.sym == SDLK_DOWN) {
+                    simulationStepValue -= 5;          // Decrease step
+                    if (simulationStepValue < 15) simulationStepValue = 15;  // min limit
+                    simulationStep = 1000.0f / simulationStepValue;          // recalc ms
+                }
+            }
         }
 
-        while (accumulator >= SIMULATION_STEP) {                      // Fixed-step simulation
+        while (accumulator >= simulationStep) {                      // Fixed-step simulation
             int spawnCount = (rand() % 2 == 0) ? 1 : 2;              // Randomly spawn 1 or 2 glyphs
             for (int i = 0; i < spawnCount; i++)
                 spawn(glyph);                                        // Spawn glyphs
@@ -435,7 +538,7 @@ int main(int argc, char* argv[]) {
             for (int i = 0; i < RANGE; i++)
                 move(glyph, i);                                      // Move all glyph streams
 
-            accumulator -= SIMULATION_STEP;
+            accumulator -= simulationStep;
         }
 
         SDL_SetRenderDrawColor(app.renderer, 0, 0, 0, 255);           // Clear screen to black
