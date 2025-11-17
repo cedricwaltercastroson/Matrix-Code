@@ -551,9 +551,10 @@ int main(int argc, char* argv[]) {
                     if (simulationStepValue > 60) simulationStepValue = 60;  // max limit
                     simulationStepMs = 1000.0f / simulationStepValue;        // recalc ms
 
-                    // Adjust FadeDistance based on simulation step
-                    // 10 -> 6000, 30 -> 2000, 60 -> 1000
+                    // Adjust FadeDistance with clamping
                     FadeDistance = 60000.0f / simulationStepValue;
+                    if (FadeDistance > 6000) FadeDistance = 6000;            // max fade distance
+                    if (FadeDistance < 1000) FadeDistance = 1000;            // min fade distance
                 }
 
                 if (e.key.keysym.sym == SDLK_DOWN) {
@@ -561,15 +562,19 @@ int main(int argc, char* argv[]) {
                     if (simulationStepValue < 10) simulationStepValue = 10;  // min limit
                     simulationStepMs = 1000.0f / simulationStepValue;        // recalc ms
 
-                    // Adjust FadeDistance based on simulation step
+                    // Adjust FadeDistance with clamping
                     FadeDistance = 60000.0f / simulationStepValue;
+                    if (FadeDistance > 6000) FadeDistance = 6000;            // max fade distance
+                    if (FadeDistance < 1000) FadeDistance = 1000;            // min fade distance
                 }
 
                 if (e.key.keysym.sym == SDLK_SPACE) {
                     headColorMode = 0;                 // Reset Color to Default Green
                     simulationStepValue = 30;          // Reset Simulation speed to Default value
                     simulationStepMs = 1000.0f / simulationStepValue;        // recalc ms
-                    FadeDistance = 60000.0f / simulationStepValue;           // Reset FadeDistance
+
+                    // Hard safety override for FadeDistance at default
+                    FadeDistance = 2000;               // exact default fade distance
                 }
             }
         }
