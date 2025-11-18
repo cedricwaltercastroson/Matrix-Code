@@ -26,7 +26,7 @@ float* VerticalAccumulator = NULL;  // Accumulates vertical movement per column
 float WaveHue = 0.0f;            // Incremented each frame
 float* RainbowColumnHue = NULL;     // hue for each column
 float RainbowSpeed = 1.0f;               // Rainbow transition speed
-float FadeDistance = 2000.0f;       // Fade speed denominator for glyph trails
+float FadeDistance = 3000.0f;       // Fade speed denominator for glyph trails
 int headColorMode = 0;
 // 0 = green
 // 1 = red
@@ -556,14 +556,12 @@ int main(int argc, char* argv[]) {
                 }
                 if (e.key.keysym.sym == SDLK_UP) {
                     simulationStepValue += 5;
-                    if (simulationStepValue > 90) simulationStepValue = 90;   // new max = 90 FPS
+                    if (simulationStepValue > 90) simulationStepValue = 90;
 
                     simulationStepMs = 1000.0f / simulationStepValue;
 
-                    // Same fade scaling logic as before
-                    FadeDistance = 60000.0f / simulationStepValue;
+                    FadeDistance = 90000.0f / simulationStepValue;
 
-                    // Clamp fade
                     if (FadeDistance > 6000) FadeDistance = 6000;
                     if (FadeDistance < 1000) FadeDistance = 1000;
                 }
@@ -574,21 +572,17 @@ int main(int argc, char* argv[]) {
 
                     simulationStepMs = 1000.0f / simulationStepValue;
 
-                    // Same fade scaling logic
-                    FadeDistance = 60000.0f / simulationStepValue;
+                    FadeDistance = 90000.0f / simulationStepValue;
 
-                    // Clamp fade
                     if (FadeDistance > 6000) FadeDistance = 6000;
                     if (FadeDistance < 1000) FadeDistance = 1000;
                 }
 
                 if (e.key.keysym.sym == SDLK_SPACE) {
-                    //headColorMode = 0;
                     simulationStepValue = 30;
                     simulationStepMs = 1000.0f / simulationStepValue;
 
-                    // Hard safety override
-                    FadeDistance = 2000;
+                    FadeDistance = 3000;  // Default
                 }
             }
         }
