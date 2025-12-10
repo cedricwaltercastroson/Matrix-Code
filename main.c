@@ -1,9 +1,11 @@
-﻿// main.c - Matrix rain
+﻿// main.c - Matrix rain with simple SDL UI overlay
 
 #include <stdlib.h>     // malloc, free, rand, etc.
 #include <stdbool.h>    // bool, true, false
 #include <time.h>       // time() for RNG seeding
 #include <math.h>       // fmodf, fabsf
+#include <stdio.h>      // snprintf
+#include <string.h>     // strlen
 #include <SDL.h>        // SDL core
 #include <SDL_mixer.h>  // SDL_mixer for audio
 #include <SDL_ttf.h>    // SDL_ttf for fonts
@@ -18,6 +20,20 @@
 #define ALPHABET_SIZE          36      // 10 digits + 26 lowercase letters
 #define MAX_TRAIL_LENGTH       256     // Max glyphs in a trail per column
 
+// UI overlay
+#define UI_COLOR_HIT_WIDTH     220
+#define UI_PANEL_WIDTH   420
+#define UI_PANEL_HEIGHT  360
+
+#define UI_SLIDER_X      60
+#define UI_SLIDER_Y      80
+#define UI_SLIDER_W      260
+#define UI_SLIDER_H      8
+
+#define UI_COLOR_LABEL_X_OFFSET 60
+#define UI_COLOR_LABEL_Y        160
+#define UI_COLOR_ROW_SPACING    26
+
 // ---------------------------------------------------------
 // Globals
 // ---------------------------------------------------------
@@ -30,17 +46,18 @@ int* freeIndexList = NULL;      // List of free (inactive) column indices
 int  freeIndexCount = 0;
 
 int   simulationFPS = DEFAULT_SIMULATION_FPS; // Sim steps per second
-float* speed = NULL;             // Speed multiplier per column
+float simulationStepMs = 0.0f;                // ms per simulation step
+
+float* speed = NULL;               // Speed multiplier per column
 float* VerticalAccumulator = NULL; // Sub-cell movement accumulator
-float* ColumnTravel = NULL;       // Total "distance" travelled per column
+float* ColumnTravel = NULL;        // Total "distance" travelled per column
 
 float WaveHue = 0.0f;            // Wave mode hue
 float* RainbowColumnHue = NULL;  // Per-column hue for rainbow mode
 float RainbowSpeed = 1.0f;       // Rainbow hue change speed
 
 // CONSTANT pixel distance for fade.
-// A glyph fades out after roughly this many pixels of travel.
-float FadeDistance = 1500.0f;    // tweak to taste (e.g. 1200, 1800, ...)
+float FadeDistance = 1500.0f;    // tweak to taste
 
 int headColorMode = 0;
 // 0 = green
@@ -100,13 +117,36 @@ SDL_Rect** glyph = NULL;
 // Display mode
 SDL_DisplayMode DM = { .w = 0, .h = 0 };
 
-// Alphabet: digits + lowercase letters
+// Alphabet: digits + lowercase letters (used for rain glyphs)
 const char* alphabet[ALPHABET_SIZE] = {
     "0","1","2","3","4","5","6","7","8","9",
     "a","b","c","d","e","f","g","h","i","j",
     "k","l","m","n","o","p","q","r","s","t",
     "u","v","w","x","y","z"
 };
+
+// Capitals: uppercase A Z, reserved for overlay UI usage if needed
+const char* Capitals[26] = {
+    "A","B","C","D","E","F","G","H","I","J",
+    "K","L","M","N","O","P","Q","R","S","T",
+    "U","V","W","X","Y","Z"
+};
+
+// ---------------------------------------------------------
+// UI overlay state
+// ---------------------------------------------------------
+typedef struct {
+    int visible;               // 1 = overlay visible
+    int draggingSpeedSlider;   // 1 = currently dragging speed slider
+    int mouseX;
+    int mouseY;
+} UIState;
+
+UIState ui = { 0, 0, 0, 0 };
+static SDL_Rect ui_panel_rect = { 40, 40, UI_PANEL_WIDTH, UI_PANEL_HEIGHT };
+
+// clickable rects for color mode text labels
+SDL_Rect modeRects[6] = { 0 };
 
 // ---------------------------------------------------------
 // Function declarations
@@ -118,6 +158,11 @@ void cleanupMemory(void);
 void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead);
 int  spawn(void);
 int  move(int i);
+
+// UI
+void render_ui_overlay(void);
+void handle_ui_mouse_down(int x, int y);
+void update_speed_from_mouse(int mouseX);
 
 // ---------------------------------------------------------
 // Helpers
@@ -136,6 +181,62 @@ static inline Uint8 clamp_u8_float(float v) {
     if (v <= 0.0f) return 0;
     if (v >= 255.0f) return 255;
     return (Uint8)(v + 0.5f);
+}
+
+// Render multi colored text, one character at a time.
+// If doDraw == 0, only measures; if doDraw == 1, also draws.
+SDL_Rect render_multicolor_text(const char* text,
+    int x, int y,
+    const SDL_Color* colors,
+    int colorCount,
+    int doDraw)
+{
+    SDL_Rect bounds = { x, y, 0, 0 };
+
+    if (!text || !colors || colorCount <= 0) {
+        return bounds;
+    }
+
+    int len = (int)strlen(text);
+    if (len > colorCount) len = colorCount;
+
+    int cx = x;
+    int maxH = 0;
+
+    SDL_Color bg = { 0, 0, 0, 255 };
+
+    for (int i = 0; i < len; ++i) {
+        char chStr[2];
+        chStr[0] = text[i];
+        chStr[1] = '\0';
+
+        SDL_Texture* tex = createTextTexture(chStr, colors[i], bg);
+        if (!tex) continue;
+
+        int tw, th;
+        SDL_QueryTexture(tex, NULL, NULL, &tw, &th);
+
+        if (doDraw) {
+            SDL_Rect dst = { cx, y, tw, th };
+            SDL_RenderCopy(app.renderer, tex, NULL, &dst);
+        }
+
+        SDL_DestroyTexture(tex);
+
+        if (tw > 0) {
+            if (bounds.w == 0 && bounds.h == 0) {
+                bounds.x = cx;
+                bounds.y = y;
+            }
+            cx += tw;
+            if (th > maxH) maxH = th;
+        }
+    }
+
+    bounds.w = cx - x;
+    bounds.h = maxH;
+
+    return bounds;
 }
 
 // ---------------------------------------------------------
@@ -302,7 +403,7 @@ void render_glyph_trails(void) {
 
             float fadeFactor = 1.0f - (distanceSinceSpawn / FadeDistance);
             if (fadeFactor <= 0.0f) {
-                // Fully faded: skip and don't copy
+                // Fully faded: skip and do not copy
                 continue;
             }
             if (fadeFactor > 1.0f) fadeFactor = 1.0f;
@@ -361,7 +462,7 @@ void render_glyph_trails(void) {
                     b = (Uint8)bb;
                 }
 
-                // Approximate glow: fade^2 instead of powf
+                // Approximate glow: fade^2
                 float glowFactor = fadeFactor * fadeFactor;
                 Uint8 glowAlpha = (Uint8)(glowFactor * 50.0f);
 
@@ -469,7 +570,7 @@ int move(int i) {
     // Remember travel before this simulation step
     float prevTravel = ColumnTravel[i];
 
-    // Advance total travel by this step’s movement (for overall fade)
+    // Advance total travel by this step movement
     ColumnTravel[i] += movement;
 
     if (!isActive[i]) return i;
@@ -494,11 +595,10 @@ int move(int i) {
 
         headGlyphIndex[i] = newGlyph;
 
-        // Each cell step corresponds to ~one glyph-height of travel.
-        // Older glyphs get smaller spawnTravel; newest gets largest.
+        // Each cell step corresponds to one glyph height of travel.
         spawnTravel += (float)cellH;
 
-        // Spawn as non-head; we mark the newest as head after loop.
+        // Spawn as non-head; we mark newest as head after loop.
         spawnStaticGlyph(i, headGlyphIndex[i], stepRect, spawnTravel, false);
 
         glyph[i][0].y += cellH;
@@ -512,17 +612,327 @@ int move(int i) {
             }
 
             VerticalAccumulator[i] = 0.0f;
-            // ColumnTravel[i] is NOT reset; trail keeps fading.
+            // ColumnTravel[i] is not reset; trail keeps fading.
             break;
         }
     }
 
-    // Ensure ONLY the newest glyph spawned this step is marked as head
+    // Newest glyph spawned this step is marked as head
     if (trailCounts[i] > startCount) {
         fadingTrails[i][trailCounts[i] - 1].isHead = true;
     }
 
     return i;
+}
+
+// ---------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------
+
+static void update_simulation_fps_from_value(float t) {
+    const float minFPS = 10.0f;
+    const float maxFPS = 90.0f;
+
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    simulationFPS = (int)(minFPS + t * (maxFPS - minFPS) + 0.5f);
+    simulationStepMs = 1000.0f / (float)simulationFPS;
+}
+
+void update_speed_from_mouse(int mouseX) {
+    int sliderX = ui_panel_rect.x + UI_SLIDER_X;
+    int sliderW = UI_SLIDER_W;
+
+    float t = (float)(mouseX - sliderX) / (float)sliderW;
+    update_simulation_fps_from_value(t);
+}
+
+void handle_ui_mouse_down(int x, int y) {
+    // Click outside panel: ignore
+    if (x < ui_panel_rect.x || x > ui_panel_rect.x + ui_panel_rect.w ||
+        y < ui_panel_rect.y || y > ui_panel_rect.y + ui_panel_rect.h) {
+        return;
+    }
+
+    // Speed slider hit test
+    int sliderX = ui_panel_rect.x + UI_SLIDER_X;
+    int sliderY = ui_panel_rect.y + UI_SLIDER_Y;
+    SDL_Rect sliderRect = { sliderX, sliderY - 4, UI_SLIDER_W, UI_SLIDER_H + 8 };
+
+    if (x >= sliderRect.x && x <= sliderRect.x + sliderRect.w &&
+        y >= sliderRect.y && y <= sliderRect.y + sliderRect.h) {
+        ui.draggingSpeedSlider = 1;
+        update_speed_from_mouse(x);
+        return;
+    }
+
+    // Color mode text hit test using modeRects
+    for (int c = 0; c < 6; ++c) {
+        SDL_Rect r = modeRects[c];
+        if (r.w <= 0 || r.h <= 0) continue;
+
+        if (x >= r.x && x <= r.x + r.w &&
+            y >= r.y && y <= r.y + r.h) {
+            headColorMode = c;
+            break;
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// UI overlay rendering
+// ---------------------------------------------------------
+void render_ui_overlay(void) {
+    if (!ui.visible) return;
+
+    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
+
+    // Panel background
+    SDL_SetRenderDrawColor(app.renderer, 38, 38, 46, 220);
+    SDL_RenderFillRect(app.renderer, &ui_panel_rect);
+
+    // Border
+    SDL_SetRenderDrawColor(app.renderer, 90, 90, 100, 255);
+    SDL_RenderDrawRect(app.renderer, &ui_panel_rect);
+
+    SDL_Color fg = { 255, 255, 255, 255 };
+    SDL_Color bg = { 0, 0, 0, 255 };
+
+    // Title
+    SDL_Texture* txtTitle = createTextTexture("MATRIX CODE RAIN CONTROLS", fg, bg);
+    if (txtTitle) {
+        int tw, th;
+        SDL_QueryTexture(txtTitle, NULL, NULL, &tw, &th);
+        SDL_Rect dst = { ui_panel_rect.x + 16, ui_panel_rect.y + 12, tw, th };
+        SDL_RenderCopy(app.renderer, txtTitle, NULL, &dst);
+        SDL_DestroyTexture(txtTitle);
+    }
+
+    // Speed label
+    SDL_Texture* txtSpeed = createTextTexture("SPEED SIMULATION FPS", fg, bg);
+    if (txtSpeed) {
+        int tw, th;
+        SDL_QueryTexture(txtSpeed, NULL, NULL, &tw, &th);
+        SDL_Rect dst = {
+            ui_panel_rect.x + UI_SLIDER_X,
+            ui_panel_rect.y + UI_SLIDER_Y - 26,
+            tw, th
+        };
+        SDL_RenderCopy(app.renderer, txtSpeed, NULL, &dst);
+        SDL_DestroyTexture(txtSpeed);
+    }
+
+    // FPS value
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%d", simulationFPS);
+    SDL_Texture* txtValue = createTextTexture(buf, fg, bg);
+    if (txtValue) {
+        int tw, th;
+        SDL_QueryTexture(txtValue, NULL, NULL, &tw, &th);
+        SDL_Rect dst = {
+            ui_panel_rect.x + UI_SLIDER_X + UI_SLIDER_W + 12,
+            ui_panel_rect.y + UI_SLIDER_Y - th / 2,
+            tw, th
+        };
+        SDL_RenderCopy(app.renderer, txtValue, NULL, &dst);
+        SDL_DestroyTexture(txtValue);
+    }
+
+    // Slider track
+    int sliderX = ui_panel_rect.x + UI_SLIDER_X;
+    int sliderY = ui_panel_rect.y + UI_SLIDER_Y;
+    SDL_Rect track = { sliderX, sliderY, UI_SLIDER_W, UI_SLIDER_H };
+
+    SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 255);
+    SDL_RenderFillRect(app.renderer, &track);
+
+    // Slider knob from FPS
+    const float minFPS = 10.0f;
+    const float maxFPS = 90.0f;
+    float t = (float)(simulationFPS - minFPS) / (maxFPS - minFPS);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    int knobX = sliderX + (int)(t * (float)UI_SLIDER_W);
+    SDL_Rect knob = { knobX - 6, sliderY - 6, 12, 12 };
+
+    SDL_SetRenderDrawColor(app.renderer, 220, 220, 230, 255);
+    SDL_RenderFillRect(app.renderer, &knob);
+
+    // Color mode label
+    SDL_Texture* txtColor = createTextTexture("COLOR MODE", fg, bg);
+    if (txtColor) {
+        int tw, th;
+        SDL_QueryTexture(txtColor, NULL, NULL, &tw, &th);
+        SDL_Rect dst = {
+            ui_panel_rect.x + UI_SLIDER_X,
+            ui_panel_rect.y + UI_COLOR_LABEL_Y - 26,
+            tw, th
+        };
+        SDL_RenderCopy(app.renderer, txtColor, NULL, &dst);
+        SDL_DestroyTexture(txtColor);
+    }
+
+    // Color mode text rows
+    const char* modeLabels[6] = {
+        "MATRIX GREEN",
+        "CRIMSON RED",
+        "DIGITAL BLUE",
+        "WHITE OUT",
+        "WAVE",
+        "RAINBOW"
+    };
+
+    SDL_Color modeColors[6] = {
+        { 0,   255, 0,   255 }, // GREEN
+        { 255, 0,   0,   255 }, // RED
+        { 40,  80,  255, 255 }, // BLUE
+        { 255, 255, 255, 255 }, // WHITE
+        { 230, 230, 230, 255 }, // WAVE label base
+        { 255, 255, 255, 255 }  // RAINBOW label base
+    };
+
+    int labelBaseX = ui_panel_rect.x + UI_COLOR_LABEL_X_OFFSET;
+    int labelBaseY = ui_panel_rect.y + UI_COLOR_LABEL_Y;
+
+    for (int c = 0; c < 6; ++c) {
+        int rowY = labelBaseY + c * UI_COLOR_ROW_SPACING;
+
+        // default init
+        modeRects[c].x = modeRects[c].y = modeRects[c].w = modeRects[c].h = 0;
+
+        if (c <= 3) {
+            // Simple single color label
+            SDL_Color textColor = modeColors[c];
+            SDL_Texture* tLabel = createTextTexture(modeLabels[c], textColor, bg);
+            if (!tLabel) continue;
+
+            int tw, th;
+            SDL_QueryTexture(tLabel, NULL, NULL, &tw, &th);
+
+            SDL_Rect textRect = { labelBaseX, rowY, tw, th };
+            SDL_Rect hitRect = {
+                        labelBaseX - 8,          // fixed left
+                        rowY - 2,                // based on row
+                        UI_COLOR_HIT_WIDTH,      // fixed width
+                        th + 4                   // height from text
+            };
+
+            if (c == headColorMode) {
+                SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
+                SDL_RenderFillRect(app.renderer, &hitRect);
+                SDL_SetRenderDrawColor(app.renderer, 200, 200, 210, 255);
+                SDL_RenderDrawRect(app.renderer, &hitRect);
+            }
+
+            SDL_RenderCopy(app.renderer, tLabel, NULL, &textRect);
+            SDL_DestroyTexture(tLabel);
+
+            modeRects[c] = hitRect;
+        }
+        else if (c == 4) {
+            // WAVE text in RGBW per letter
+            SDL_Color waveColors[4] = {
+                { 255, 0,   0,   255 }, // W
+                { 255, 128, 0,   255 }, // A
+                { 255, 255, 0,   255 }, // V
+                { 0,   255, 0,   255 }  // E
+            };
+
+            // First measure
+            SDL_Rect textRect = render_multicolor_text("WAVE",
+                labelBaseX,
+                rowY,
+                waveColors,
+                4,
+                0);
+
+            SDL_Rect hitRect = {
+                        labelBaseX - 8,          // fixed left
+                        rowY - 2,                // row based
+                        UI_COLOR_HIT_WIDTH,      // fixed width
+                        textRect.h + 4           // height from measurement
+            };
+
+            if (c == headColorMode) {
+                SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
+                SDL_RenderFillRect(app.renderer, &hitRect);
+                SDL_SetRenderDrawColor(app.renderer, 200, 200, 210, 255);
+                SDL_RenderDrawRect(app.renderer, &hitRect);
+            }
+
+            // Now draw
+            render_multicolor_text("WAVE",
+                labelBaseX,
+                rowY,
+                waveColors,
+                4,
+                1);
+
+            modeRects[c] = hitRect;
+        }
+        else if (c == 5) {
+            // RAINBOW text with rainbow colors per letter
+            SDL_Color rainbowColors[7] = {
+                { 255, 0,   0,   255 }, // R
+                { 255, 128, 0,   255 }, // A
+                { 255, 255, 0,   255 }, // I
+                { 0,   255, 0,   255 }, // N
+                { 0,   0,   255, 255 }, // B
+                { 75,  0,   130, 255 }, // O
+                { 148, 0,   211, 255 }  // W
+            };
+
+            // Measure
+            SDL_Rect textRect = render_multicolor_text("RAINBOW",
+                labelBaseX,
+                rowY,
+                rainbowColors,
+                7,
+                0);
+
+            SDL_Rect hitRect = {
+                        labelBaseX - 8,          // fixed left
+                        rowY - 2,                // row based
+                        UI_COLOR_HIT_WIDTH,      // fixed width
+                        textRect.h + 4           // height from measurement
+            };
+
+            if (c == headColorMode) {
+                SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
+                SDL_RenderFillRect(app.renderer, &hitRect);
+                SDL_SetRenderDrawColor(app.renderer, 200, 200, 210, 255);
+                SDL_RenderDrawRect(app.renderer, &hitRect);
+            }
+
+            // Draw
+            render_multicolor_text("RAINBOW",
+                labelBaseX,
+                rowY,
+                rainbowColors,
+                7,
+                1);
+
+            modeRects[c] = hitRect;
+        }
+    }
+
+    // Hint text
+    SDL_Texture* txtHint = createTextTexture("PRESS F1 TO TOGGLE UI", fg, bg);
+    if (txtHint) {
+        int tw, th;
+        SDL_QueryTexture(txtHint, NULL, NULL, &tw, &th);
+        SDL_Rect dst = {
+            ui_panel_rect.x + 16,
+            ui_panel_rect.y + ui_panel_rect.h - th - 10,
+            tw, th
+        };
+        SDL_RenderCopy(app.renderer, txtHint, NULL, &dst);
+        SDL_DestroyTexture(txtHint);
+    }
+
+    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
 }
 
 // ---------------------------------------------------------
@@ -532,7 +942,6 @@ void initialize() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) terminate(1);
     if (TTF_Init() < 0) terminate(1);
 
-    // For speed: nearest neighbour scaling
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
     if (Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 4096) < 0) {
@@ -646,7 +1055,7 @@ void initialize() {
         }
     }
 
-    SDL_Surface* surf = TTF_RenderText_Shaded(font1, " ", bg, bg);
+    SDL_Surface* surf = TTF_RenderText_Shaded(font1, "0", bg, bg);
     if (!surf) {
         SDL_Log("Failed to create empty glyph surface: %s", TTF_GetError());
         terminate(1);
@@ -655,6 +1064,10 @@ void initialize() {
     SDL_FreeSurface(surf);
 
     SDL_QueryTexture(emptyTexture, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
+    if (emptyTextureHeight == 0) {
+        SDL_Log("Error: emptyTextureHeight is 0");
+        terminate(1);
+    }
 
     music = Mix_LoadMUS("effects.wav");
     if (!music) {
@@ -675,7 +1088,7 @@ int main(int argc, char* argv[]) {
     initialize();
 
     float accumulator = 0.0f;
-    float simulationStepMs = 1000.0f / (float)simulationFPS;
+    simulationStepMs = 1000.0f / (float)simulationFPS;
 
     Uint32 previousTime = SDL_GetTicks();
 
@@ -692,30 +1105,65 @@ int main(int argc, char* argv[]) {
                 app.running = 0;
 
             if (e.type == SDL_KEYDOWN) {
-                if (e.key.keysym.sym == SDLK_LEFT) {
-                    headColorMode--;
-                    if (headColorMode < 0) headColorMode = 5;
+                SDL_Keycode key = e.key.keysym.sym;
+
+                // Toggle UI overlay (always allowed)
+                if (key == SDLK_F1) {
+                    ui.visible = !ui.visible;
+                    SDL_ShowCursor(ui.visible ? SDL_ENABLE : SDL_DISABLE);
                 }
-                if (e.key.keysym.sym == SDLK_RIGHT) {
-                    headColorMode++;
-                    if (headColorMode > 5) headColorMode = 0;
-                }
-                if (e.key.keysym.sym == SDLK_UP) {
-                    simulationFPS += 5;
-                    if (simulationFPS > 90) simulationFPS = 90;
-                    simulationStepMs = 1000.0f / (float)simulationFPS;
-                    // FadeDistance stays constant in pixels.
-                }
-                if (e.key.keysym.sym == SDLK_DOWN) {
-                    simulationFPS -= 5;
-                    if (simulationFPS < 10) simulationFPS = 10;
-                    simulationStepMs = 1000.0f / (float)simulationFPS;
-                }
-                if (e.key.keysym.sym == SDLK_SPACE) {
+
+                // Only allow SPACE when UI is visible
+                if (ui.visible && key == SDLK_SPACE) {
                     simulationFPS = DEFAULT_SIMULATION_FPS;
                     simulationStepMs = 1000.0f / (float)simulationFPS;
-                    // Optionally reset FadeDistance if you like:
-                    // FadeDistance = 1500.0f;
+                    headColorMode = 0; // GREEN
+                }
+
+                // Arrow keys only work when UI is visible
+                if (ui.visible) {
+
+                    // LEFT / RIGHT adjust speed
+                    if (key == SDLK_LEFT) {
+                        simulationFPS -= 5;
+                        if (simulationFPS < 10) simulationFPS = 10;
+                        simulationStepMs = 1000.0f / (float)simulationFPS;
+                    }
+                    else if (key == SDLK_RIGHT) {
+                        simulationFPS += 5;
+                        if (simulationFPS > 90) simulationFPS = 90;
+                        simulationStepMs = 1000.0f / (float)simulationFPS;
+                    }
+
+                    // UP / DOWN change color (UP goes up the list)
+                    else if (key == SDLK_UP) {
+                        headColorMode--;
+                        if (headColorMode < 0) headColorMode = 5;
+                    }
+                    else if (key == SDLK_DOWN) {
+                        headColorMode++;
+                        if (headColorMode > 5) headColorMode = 0;
+                    }
+                }
+            }
+
+            if (ui.visible) {
+                if (e.type == SDL_MOUSEMOTION) {
+                    ui.mouseX = e.motion.x;
+                    ui.mouseY = e.motion.y;
+                    if (ui.draggingSpeedSlider) {
+                        update_speed_from_mouse(ui.mouseX);
+                    }
+                }
+                else if (e.type == SDL_MOUSEBUTTONDOWN &&
+                    e.button.button == SDL_BUTTON_LEFT) {
+                    ui.mouseX = e.button.x;
+                    ui.mouseY = e.button.y;
+                    handle_ui_mouse_down(e.button.x, e.button.y);
+                }
+                else if (e.type == SDL_MOUSEBUTTONUP &&
+                    e.button.button == SDL_BUTTON_LEFT) {
+                    ui.draggingSpeedSlider = 0;
                 }
             }
         }
@@ -735,14 +1183,9 @@ int main(int argc, char* argv[]) {
         SDL_RenderClear(app.renderer);
 
         render_glyph_trails();
+        render_ui_overlay();
 
         SDL_RenderPresent(app.renderer);
-
-        Uint32 frameDuration = SDL_GetTicks() - frameStart;
-        const Uint32 targetFrameMs = 1000 / 60;
-        if (frameDuration < targetFrameMs) {
-            SDL_Delay(targetFrameMs - frameDuration);
-        }
     }
 
     terminate(0);
