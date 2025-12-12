@@ -57,11 +57,6 @@ float* ColumnTravel = NULL;
 
 float WaveHue = 0.0f;
 
-// This array is retained, but no longer used for the per-glyph rainbow behavior.
-// (Safe to keep for future tweaks.)
-float* RainbowColumnHue = NULL;
-float RainbowSpeed = 1.0f;
-
 float FadeDistance = 1500.0f;
 
 int headColorMode = 0;
@@ -94,7 +89,6 @@ typedef struct {
 
 StaticGlyph** fadingTrails = NULL;
 int* trailCounts = NULL;
-int* trailCapacities = NULL;
 
 // ---------------------------------------------------------
 // Glyph textures
@@ -137,7 +131,6 @@ typedef struct {
 
 UIState ui = { 0 };
 static SDL_Rect ui_panel_rect = { 40, 40, UI_PANEL_WIDTH, UI_PANEL_HEIGHT };
-SDL_Rect modeRects[6] = { 0 };
 
 // ---------------------------------------------------------
 // Function declarations
@@ -231,7 +224,6 @@ void cleanupMemory() {
     if (headGlyphIndex) { free(headGlyphIndex); headGlyphIndex = NULL; }
     if (VerticalAccumulator) { free(VerticalAccumulator); VerticalAccumulator = NULL; }
     if (ColumnTravel) { free(ColumnTravel); ColumnTravel = NULL; }
-    if (RainbowColumnHue) { free(RainbowColumnHue); RainbowColumnHue = NULL; }
 
     if (glyph) {
         for (int i = 0; i < RANGE; ++i) {
@@ -249,7 +241,6 @@ void cleanupMemory() {
         fadingTrails = NULL;
     }
 
-    if (trailCapacities) { free(trailCapacities); trailCapacities = NULL; }
     if (trailCounts) { free(trailCounts); trailCounts = NULL; }
     if (freeIndexList) { free(freeIndexList); freeIndexList = NULL; }
 
@@ -467,7 +458,7 @@ void render_glyph_trails(void) {
 // Spawning / movement
 // ---------------------------------------------------------
 void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead) {
-    if (trailCounts[columnIndex] >= trailCapacities[columnIndex]) return;
+    if (trailCounts[columnIndex] >= MAX_TRAIL_LENGTH) return;
 
     StaticGlyph* fglyph = &fadingTrails[columnIndex][trailCounts[columnIndex]++];
 
@@ -710,7 +701,6 @@ void render_ui_overlay(void) {
 
     for (int c = 0; c < 6; ++c) {
         int rowY = labelBaseY + c * UI_COLOR_ROW_SPACING;
-        modeRects[c].x = modeRects[c].y = modeRects[c].w = modeRects[c].h = 0;
 
         if (c <= 3) {
             SDL_Texture* tLabel = createTextTexture(modeLabels[c], modeColors[c], bg);
@@ -732,7 +722,6 @@ void render_ui_overlay(void) {
             SDL_RenderCopy(app.renderer, tLabel, NULL, &textRect);
             SDL_DestroyTexture(tLabel);
 
-            modeRects[c] = hitRect;
         }
         else if (c == 4) {
             SDL_Color waveColors[4] = {
@@ -754,7 +743,6 @@ void render_ui_overlay(void) {
             }
 
             render_multicolor_text("WAVE", labelBaseX, rowY, waveColors, 4, 1);
-            modeRects[c] = hitRect;
         }
         else if (c == 5) {
             SDL_Color rainbowColors[7] = {
@@ -779,7 +767,6 @@ void render_ui_overlay(void) {
             }
 
             render_multicolor_text("RAINBOW", labelBaseX, rowY, rainbowColors, 7, 1);
-            modeRects[c] = hitRect;
         }
     }
 
@@ -831,9 +818,6 @@ void initialize() {
     trailCounts = (int*)calloc((size_t)RANGE, sizeof(int));
     if (!trailCounts) { SDL_Log("Out of memory: trailCounts"); terminate(1); }
 
-    trailCapacities = (int*)malloc(RANGE * sizeof(int));
-    if (!trailCapacities) { SDL_Log("Out of memory: trailCapacities"); terminate(1); }
-
     fadingTrails = (StaticGlyph**)malloc(RANGE * sizeof(StaticGlyph*));
     if (!fadingTrails) { SDL_Log("Out of memory: fadingTrails"); terminate(1); }
 
@@ -846,15 +830,11 @@ void initialize() {
     ColumnTravel = (float*)calloc((size_t)RANGE, sizeof(float));
     if (!ColumnTravel) { SDL_Log("Out of memory: ColumnTravel"); terminate(1); }
 
-    RainbowColumnHue = (float*)malloc(RANGE * sizeof(float));
-    if (!RainbowColumnHue) { SDL_Log("Out of memory: RainbowColumnHue"); terminate(1); }
-
     for (int i = 0; i < RANGE; ++i) {
         mn[i] = i * CHAR_SPACING;
         speed[i] = 1.0f;
         isActive[i] = 0;
         freeIndexList[i] = i;
-        trailCapacities[i] = MAX_TRAIL_LENGTH;
 
         fadingTrails[i] = (StaticGlyph*)malloc(MAX_TRAIL_LENGTH * sizeof(StaticGlyph));
         if (!fadingTrails[i]) {
@@ -863,7 +843,6 @@ void initialize() {
         }
 
         headGlyphIndex[i] = -1;
-        RainbowColumnHue[i] = (float)(rand() % 360);
         ColumnTravel[i] = 0.0f;
     }
 
