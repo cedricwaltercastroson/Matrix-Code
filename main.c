@@ -1,24 +1,24 @@
-﻿// main.c - Matrix rain with simple SDL UI overlay
+﻿// main.c - Matrix rain with simple SDL UI overlay (HOTKEY-ONLY, MOUSE ALWAYS HIDDEN)
 
-#include <stdlib.h>     // malloc, free, rand, etc.
-#include <stdbool.h>    // bool, true, false
-#include <time.h>       // time() for RNG seeding
-#include <math.h>       // fmodf, fabsf
-#include <stdio.h>      // snprintf
-#include <string.h>     // strlen
-#include <SDL.h>        // SDL core
-#include <SDL_mixer.h>  // SDL_mixer for audio
-#include <SDL_ttf.h>    // SDL_ttf for fonts
+#include <stdlib.h>
+#include <stdbool.h>
+#include <time.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include <SDL.h>
+#include <SDL_mixer.h>
+#include <SDL_ttf.h>
 
 // ---------------------------------------------------------
 // Constants
 // ---------------------------------------------------------
-#define FONT_SIZE              26      // Glyph size in pixels
-#define CHAR_SPACING           16      // Horizontal spacing between columns
-#define glyph_START_Y          -25     // Start Y for new streams
-#define DEFAULT_SIMULATION_FPS 30      // Base simulation FPS
-#define ALPHABET_SIZE          36      // 10 digits + 26 lowercase letters
-#define MAX_TRAIL_LENGTH       256     // Max glyphs in a trail per column
+#define FONT_SIZE              26
+#define CHAR_SPACING           16
+#define glyph_START_Y          -25
+#define DEFAULT_SIMULATION_FPS 30
+#define ALPHABET_SIZE          36
+#define MAX_TRAIL_LENGTH       256
 
 // UI overlay
 #define UI_COLOR_HIT_WIDTH     220
@@ -34,30 +34,35 @@
 #define UI_COLOR_LABEL_Y        160
 #define UI_COLOR_ROW_SPACING    26
 
+// Spiral-of-death protection
+#define MAX_FRAME_TIME_MS   250.0f
+#define MAX_ACCUMULATOR_MS  500.0f
+
 // ---------------------------------------------------------
 // Globals
 // ---------------------------------------------------------
-
-int* mn = NULL;                 // X position per column
-int  RANGE = 0;                 // Number of columns
-int* isActive = NULL;           // Column active flags
-int* headGlyphIndex = NULL;     // Head glyph index per column (-1 = none)
-int* freeIndexList = NULL;      // List of free (inactive) column indices
+int* mn = NULL;
+int  RANGE = 0;
+int* isActive = NULL;
+int* headGlyphIndex = NULL;
+int* freeIndexList = NULL;
 int  freeIndexCount = 0;
 
-int   simulationFPS = DEFAULT_SIMULATION_FPS; // Sim steps per second
-float simulationStepMs = 0.0f;                // ms per simulation step
+int   simulationFPS = DEFAULT_SIMULATION_FPS;
+float simulationStepMs = 0.0f;
 
-float* speed = NULL;               // Speed multiplier per column
-float* VerticalAccumulator = NULL; // Sub-cell movement accumulator
-float* ColumnTravel = NULL;        // Total "distance" travelled per column
+float* speed = NULL;
+float* VerticalAccumulator = NULL;
+float* ColumnTravel = NULL;
 
-float WaveHue = 0.0f;            // Wave mode hue
-float* RainbowColumnHue = NULL;  // Per-column hue for rainbow mode
-float RainbowSpeed = 1.0f;       // Rainbow hue change speed
+float WaveHue = 0.0f;
 
-// CONSTANT pixel distance for fade.
-float FadeDistance = 1500.0f;    // tweak to taste
+// This array is retained, but no longer used for the per-glyph rainbow behavior.
+// (Safe to keep for future tweaks.)
+float* RainbowColumnHue = NULL;
+float RainbowSpeed = 1.0f;
+
+float FadeDistance = 1500.0f;
 
 int headColorMode = 0;
 // 0 = green
@@ -65,13 +70,11 @@ int headColorMode = 0;
 // 2 = blue
 // 3 = white
 // 4 = wave (global hue)
-// 5 = rainbow (per-column hue)
+// 5 = rainbow (PER-GLYPH hue stored at spawn)
 
-// glyph cell size (from empty texture)
 int emptyTextureWidth = 0;
 int emptyTextureHeight = 0;
 
-// SDL resources
 Mix_Music* music = NULL;
 TTF_Font* font1 = NULL;
 
@@ -79,21 +82,25 @@ TTF_Font* font1 = NULL;
 // Glyph trail data structures
 // ---------------------------------------------------------
 typedef struct {
-    int glyphIndex;    // Index into alphabet[]
-    float fadeTimer;   // Stores per-glyph spawn travel distance
-    SDL_Rect rect;     // Position and size on screen
-    bool isHead;       // 1 if this glyph is a head glyph (brightest)
+    int glyphIndex;
+    float fadeTimer;     // spawn travel position
+    SDL_Rect rect;
+    bool isHead;
+
+    // Per-glyph hue for RAINBOW mode.
+    // Only meaningful when headColorMode==5 at spawn time.
+    float spawnHue;
 } StaticGlyph;
 
-StaticGlyph** fadingTrails = NULL;  // [RANGE][MAX_TRAIL_LENGTH]
-int* trailCounts = NULL;            // current count per column
-int* trailCapacities = NULL;        // capacity per column
+StaticGlyph** fadingTrails = NULL;
+int* trailCounts = NULL;
+int* trailCapacities = NULL;
 
 // ---------------------------------------------------------
 // Glyph textures
 // ---------------------------------------------------------
 typedef struct {
-    SDL_Texture* head;   // Texture for glyph
+    SDL_Texture* head;
 } glyphTextures;
 
 glyphTextures gTextures[ALPHABET_SIZE] = { 0 };
@@ -106,18 +113,14 @@ typedef struct {
     SDL_Renderer* renderer;
     SDL_Window* window;
     int           running;
-    int           dy;       // base pixels per sim step (before speed multiplier)
+    int           dy;
 } SDL2APP;
 
 SDL2APP app = { .renderer = NULL, .window = NULL, .running = 1, .dy = 20 };
 
-// One SDL_Rect per column for the "head" position
 SDL_Rect** glyph = NULL;
-
-// Display mode
 SDL_DisplayMode DM = { .w = 0, .h = 0 };
 
-// Alphabet: digits + lowercase letters (used for rain glyphs)
 const char* alphabet[ALPHABET_SIZE] = {
     "0","1","2","3","4","5","6","7","8","9",
     "a","b","c","d","e","f","g","h","i","j",
@@ -125,27 +128,15 @@ const char* alphabet[ALPHABET_SIZE] = {
     "u","v","w","x","y","z"
 };
 
-// Capitals: uppercase A Z, reserved for overlay UI usage if needed
-const char* Capitals[26] = {
-    "A","B","C","D","E","F","G","H","I","J",
-    "K","L","M","N","O","P","Q","R","S","T",
-    "U","V","W","X","Y","Z"
-};
-
 // ---------------------------------------------------------
 // UI overlay state
 // ---------------------------------------------------------
 typedef struct {
-    int visible;               // 1 = overlay visible
-    int draggingSpeedSlider;   // 1 = currently dragging speed slider
-    int mouseX;
-    int mouseY;
+    int visible;
 } UIState;
 
-UIState ui = { 0, 0, 0, 0 };
+UIState ui = { 0 };
 static SDL_Rect ui_panel_rect = { 40, 40, UI_PANEL_WIDTH, UI_PANEL_HEIGHT };
-
-// clickable rects for color mode text labels
 SDL_Rect modeRects[6] = { 0 };
 
 // ---------------------------------------------------------
@@ -159,10 +150,7 @@ void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float init
 int  spawn(void);
 int  move(int i);
 
-// UI
 void render_ui_overlay(void);
-void handle_ui_mouse_down(int x, int y);
-void update_speed_from_mouse(int mouseX);
 
 // ---------------------------------------------------------
 // Helpers
@@ -183,8 +171,6 @@ static inline Uint8 clamp_u8_float(float v) {
     return (Uint8)(v + 0.5f);
 }
 
-// Render multi colored text, one character at a time.
-// If doDraw == 0, only measures; if doDraw == 1, also draws.
 SDL_Rect render_multicolor_text(const char* text,
     int x, int y,
     const SDL_Color* colors,
@@ -224,10 +210,6 @@ SDL_Rect render_multicolor_text(const char* text,
         SDL_DestroyTexture(tex);
 
         if (tw > 0) {
-            if (bounds.w == 0 && bounds.h == 0) {
-                bounds.x = cx;
-                bounds.y = y;
-            }
             cx += tw;
             if (th > maxH) maxH = th;
         }
@@ -336,19 +318,13 @@ void hueToRGBf(float H, float* r, float* g, float* b) {
 
 void updateHue() {
     if (headColorMode == 4) {
-        WaveHue += 1.0f;
+        WaveHue += 0.1f;
         if (WaveHue >= 360.0f) WaveHue -= 360.0f;
-    }
-    else if (headColorMode == 5) {
-        for (int col = 0; col < RANGE; col++) {
-            RainbowColumnHue[col] += RainbowSpeed + (rand() % 4);
-            if (RainbowColumnHue[col] >= 360.0f) RainbowColumnHue[col] -= 360.0f;
-        }
     }
 }
 
 // ---------------------------------------------------------
-// Rendering (optimised inner loop)
+// Rendering
 // ---------------------------------------------------------
 void render_glyph_trails(void) {
     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_ADD);
@@ -360,36 +336,31 @@ void render_glyph_trails(void) {
         if (count <= 0) continue;
 
         int writeIndex = 0;
-
-        // Cache per-column data
         float colTravel = ColumnTravel[col];
 
-        float baseR = 0.0f, baseG = 128.0f, baseB = 0.0f;     // default green
-        float headR = 0.0f, headG = 200.0f, headB = 128.0f;   // bright green
+        // Defaults (GREEN)
+        float baseR = 0.0f, baseG = 128.0f, baseB = 0.0f;
+        float headR = 0.0f, headG = 200.0f, headB = 128.0f;
 
-        switch (headColorMode) {
-        case 1: // RED
-            baseR = 128.0f; baseG = 0.0f;   baseB = 0.0f;
-            headR = 255.0f; headG = 80.0f;  headB = 80.0f;
-            break;
-        case 2: // BLUE
-            baseR = 15.0f;  baseG = 35.0f;  baseB = 225.0f;
-            headR = 60.0f;  headG = 140.0f; headB = 255.0f;
-            break;
-        case 3: // WHITE
-            baseR = 128.0f; baseG = 128.0f; baseB = 128.0f;
-            headR = 255.0f; headG = 255.0f; headB = 255.0f;
-            break;
-        case 4: // WAVE
-            hueToRGBf(WaveHue, &headR, &headG, &headB);
-            hueToRGBf(fmodf(WaveHue + 180.0f, 360.0f), &baseR, &baseG, &baseB);
-            break;
-        case 5: // RAINBOW
-            hueToRGBf(RainbowColumnHue[col], &headR, &headG, &headB);
-            hueToRGBf(fmodf(RainbowColumnHue[col] + 180.0f, 360.0f), &baseR, &baseG, &baseB);
-            break;
-        default:
-            break;
+        // For non-rainbow modes, we compute colors per-frame based on headColorMode.
+        // For rainbow mode, colors are computed PER GLYPH from its stored spawnHue.
+        if (headColorMode != 5) {
+            switch (headColorMode) {
+            case 1: // RED
+                baseR = 128.0f; baseG = 0.0f;   baseB = 0.0f;
+                headR = 255.0f; headG = 80.0f;  headB = 80.0f;
+                break;
+            case 2: // BLUE
+                baseR = 15.0f;  baseG = 35.0f;  baseB = 225.0f;
+                headR = 60.0f;  headG = 140.0f; headB = 255.0f;
+                break;
+            case 3: // WHITE
+                baseR = 128.0f; baseG = 128.0f; baseB = 128.0f;
+                headR = 255.0f; headG = 255.0f; headB = 255.0f;
+                break;
+            default:
+                break;
+            }
         }
 
         const float brightThreshold = 0.9f;
@@ -397,28 +368,38 @@ void render_glyph_trails(void) {
         for (int g = 0; g < count; g++) {
             StaticGlyph* SGlyph = &fadingTrails[col][g];
 
-            // Distance-based fade
             float distanceSinceSpawn = colTravel - SGlyph->fadeTimer;
             if (distanceSinceSpawn < 0.0f) distanceSinceSpawn = 0.0f;
 
             float fadeFactor = 1.0f - (distanceSinceSpawn / FadeDistance);
             if (fadeFactor <= 0.0f) {
-                // Fully faded: skip and do not copy
                 continue;
             }
             if (fadeFactor > 1.0f) fadeFactor = 1.0f;
 
-            // Shape curve (quadratic)
             fadeFactor = fadeFactor * fadeFactor;
 
             SDL_Texture* texture = gTextures[SGlyph->glyphIndex].head;
 
+            // If we are in rainbow mode, compute this glyph's base/head from its stored spawnHue.
+            float gBaseR = baseR, gBaseG = baseG, gBaseB = baseB;
+            float gHeadR = headR, gHeadG = headG, gHeadB = headB;
+
+            if (headColorMode == 5 || headColorMode == 4) {
+                // RAINBOW/WAVE: render from per-glyph stored hue
+                hueToRGBf(SGlyph->spawnHue, &gHeadR, &gHeadG, &gHeadB);
+
+                // Same “suite” as GREEN/RED/BLUE/WHITE: base is a dimmer version of head.
+                gBaseR = gHeadR * 0.50f;
+                gBaseG = gHeadG * 0.50f;
+                gBaseB = gHeadB * 0.50f;
+            }
+
             if (SGlyph->isHead) {
-                // HEAD GLYPH
                 SDL_SetTextureColorMod(texture,
-                    clamp_u8_float(headR),
-                    clamp_u8_float(headG),
-                    clamp_u8_float(headB));
+                    clamp_u8_float(gHeadR),
+                    clamp_u8_float(gHeadG),
+                    clamp_u8_float(gHeadB));
                 SDL_SetTextureAlphaMod(texture, 255);
 
                 SDL_Rect bigRect = SGlyph->rect;
@@ -434,7 +415,6 @@ void render_glyph_trails(void) {
                 SDL_RenderCopy(app.renderer, texture, NULL, &SGlyph->rect);
             }
             else {
-                // TRAIL GLYPH
                 float tBright = (fadeFactor - brightThreshold) / (1.0f - brightThreshold);
                 float tNormal = fadeFactor / brightThreshold;
 
@@ -446,23 +426,22 @@ void render_glyph_trails(void) {
                 Uint8 r, gCol, b, a = 255;
 
                 if (fadeFactor > brightThreshold) {
-                    float rr = baseR + tBright * (headR - baseR);
-                    float gg = baseG + tBright * (headG - baseG);
-                    float bb = baseB + tBright * (headB - baseB);
+                    float rr = gBaseR + tBright * (gHeadR - gBaseR);
+                    float gg = gBaseG + tBright * (gHeadG - gBaseG);
+                    float bb = gBaseB + tBright * (gHeadB - gBaseB);
                     r = (Uint8)rr;
                     gCol = (Uint8)gg;
                     b = (Uint8)bb;
                 }
                 else {
-                    float rr = tNormal * baseR;
-                    float gg = tNormal * baseG;
-                    float bb = tNormal * baseB;
+                    float rr = tNormal * gBaseR;
+                    float gg = tNormal * gBaseG;
+                    float bb = tNormal * gBaseB;
                     r = (Uint8)rr;
                     gCol = (Uint8)gg;
                     b = (Uint8)bb;
                 }
 
-                // Approximate glow: fade^2
                 float glowFactor = fadeFactor * fadeFactor;
                 Uint8 glowAlpha = (Uint8)(glowFactor * 50.0f);
 
@@ -474,7 +453,6 @@ void render_glyph_trails(void) {
                 SDL_RenderCopy(app.renderer, texture, NULL, &SGlyph->rect);
             }
 
-            // Clear isHead for next frame; move compacted glyph
             SGlyph->isHead = false;
             fadingTrails[col][writeIndex++] = *SGlyph;
         }
@@ -488,18 +466,30 @@ void render_glyph_trails(void) {
 // ---------------------------------------------------------
 // Spawning / movement
 // ---------------------------------------------------------
-
-// per-glyph spawn distance is passed via initialFade.
 void spawnStaticGlyph(int columnIndex, int glyphIndex, SDL_Rect rect, float initialFade, bool isHead) {
     if (trailCounts[columnIndex] >= trailCapacities[columnIndex]) return;
 
     StaticGlyph* fglyph = &fadingTrails[columnIndex][trailCounts[columnIndex]++];
 
     fglyph->glyphIndex = glyphIndex;
-    fglyph->fadeTimer = initialFade;   // per-glyph spawn "travel"
+    fglyph->fadeTimer = initialFade;
     fglyph->rect = rect;
     fglyph->isHead = isHead;
+
+    // Per-glyph hue capture:
+    if (headColorMode == 5) {
+        // RAINBOW: random hue per spawned glyph
+        fglyph->spawnHue = (float)(rand() % 360);
+    }
+    else if (headColorMode == 4) {
+        // WAVE: current wave hue per spawned glyph (keeps cycling pattern)
+        fglyph->spawnHue = WaveHue;
+    }
+    else {
+        fglyph->spawnHue = 0.0f;
+    }
 }
+
 
 int spawn(void) {
     if (freeIndexCount <= 0) return -1;
@@ -537,12 +527,8 @@ int spawn(void) {
         attempts++;
         if (attempts > 10) break;
     } while (
-        (randomIndex > 0 &&
-            isActive[randomIndex - 1] &&
-            speed[randomIndex - 1] == chosenSpeed) ||
-        (randomIndex < RANGE - 1 &&
-            isActive[randomIndex + 1] &&
-            speed[randomIndex + 1] == chosenSpeed)
+        (randomIndex > 0 && isActive[randomIndex - 1] && speed[randomIndex - 1] == chosenSpeed) ||
+        (randomIndex < RANGE - 1 && isActive[randomIndex + 1] && speed[randomIndex + 1] == chosenSpeed)
         );
 
     speed[randomIndex] = chosenSpeed;
@@ -555,7 +541,6 @@ int spawn(void) {
         }
     }
 
-    // Only reset accumulator for this new stream
     VerticalAccumulator[randomIndex] = 0.0f;
 
     return randomIndex;
@@ -567,20 +552,14 @@ int move(int i) {
     int   cellH = emptyTextureHeight;
     float movement = app.dy * speed[i];
 
-    // Remember travel before this simulation step
     float prevTravel = ColumnTravel[i];
-
-    // Advance total travel by this step movement
     ColumnTravel[i] += movement;
 
     if (!isActive[i]) return i;
 
     VerticalAccumulator[i] += movement;
 
-    // How many trail glyphs existed before this step
     int startCount = trailCounts[i];
-
-    // Local cursor for per-glyph spawn travel
     float spawnTravel = prevTravel;
 
     while (VerticalAccumulator[i] >= cellH) {
@@ -595,10 +574,9 @@ int move(int i) {
 
         headGlyphIndex[i] = newGlyph;
 
-        // Each cell step corresponds to one glyph height of travel.
         spawnTravel += (float)cellH;
 
-        // Spawn as non-head; we mark newest as head after loop.
+        // Spawn as non-head; we mark newest as head after the loop.
         spawnStaticGlyph(i, headGlyphIndex[i], stepRect, spawnTravel, false);
 
         glyph[i][0].y += cellH;
@@ -612,12 +590,10 @@ int move(int i) {
             }
 
             VerticalAccumulator[i] = 0.0f;
-            // ColumnTravel[i] is not reset; trail keeps fading.
             break;
         }
     }
 
-    // Newest glyph spawned this step is marked as head
     if (trailCounts[i] > startCount) {
         fadingTrails[i][trailCounts[i] - 1].isHead = true;
     }
@@ -626,80 +602,22 @@ int move(int i) {
 }
 
 // ---------------------------------------------------------
-// UI helpers
-// ---------------------------------------------------------
-
-static void update_simulation_fps_from_value(float t) {
-    const float minFPS = 10.0f;
-    const float maxFPS = 90.0f;
-
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
-
-    simulationFPS = (int)(minFPS + t * (maxFPS - minFPS) + 0.5f);
-    simulationStepMs = 1000.0f / (float)simulationFPS;
-}
-
-void update_speed_from_mouse(int mouseX) {
-    int sliderX = ui_panel_rect.x + UI_SLIDER_X;
-    int sliderW = UI_SLIDER_W;
-
-    float t = (float)(mouseX - sliderX) / (float)sliderW;
-    update_simulation_fps_from_value(t);
-}
-
-void handle_ui_mouse_down(int x, int y) {
-    // Click outside panel: ignore
-    if (x < ui_panel_rect.x || x > ui_panel_rect.x + ui_panel_rect.w ||
-        y < ui_panel_rect.y || y > ui_panel_rect.y + ui_panel_rect.h) {
-        return;
-    }
-
-    // Speed slider hit test
-    int sliderX = ui_panel_rect.x + UI_SLIDER_X;
-    int sliderY = ui_panel_rect.y + UI_SLIDER_Y;
-    SDL_Rect sliderRect = { sliderX, sliderY - 4, UI_SLIDER_W, UI_SLIDER_H + 8 };
-
-    if (x >= sliderRect.x && x <= sliderRect.x + sliderRect.w &&
-        y >= sliderRect.y && y <= sliderRect.y + sliderRect.h) {
-        ui.draggingSpeedSlider = 1;
-        update_speed_from_mouse(x);
-        return;
-    }
-
-    // Color mode text hit test using modeRects
-    for (int c = 0; c < 6; ++c) {
-        SDL_Rect r = modeRects[c];
-        if (r.w <= 0 || r.h <= 0) continue;
-
-        if (x >= r.x && x <= r.x + r.w &&
-            y >= r.y && y <= r.y + r.h) {
-            headColorMode = c;
-            break;
-        }
-    }
-}
-
-// ---------------------------------------------------------
-// UI overlay rendering
+// UI overlay rendering (hotkey-only; slider is visual only)
 // ---------------------------------------------------------
 void render_ui_overlay(void) {
     if (!ui.visible) return;
 
     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
 
-    // Panel background
     SDL_SetRenderDrawColor(app.renderer, 38, 38, 46, 220);
     SDL_RenderFillRect(app.renderer, &ui_panel_rect);
 
-    // Border
     SDL_SetRenderDrawColor(app.renderer, 90, 90, 100, 255);
     SDL_RenderDrawRect(app.renderer, &ui_panel_rect);
 
     SDL_Color fg = { 255, 255, 255, 255 };
     SDL_Color bg = { 0, 0, 0, 255 };
 
-    // Title
     SDL_Texture* txtTitle = createTextTexture("MATRIX CODE RAIN CONTROLS", fg, bg);
     if (txtTitle) {
         int tw, th;
@@ -709,7 +627,6 @@ void render_ui_overlay(void) {
         SDL_DestroyTexture(txtTitle);
     }
 
-    // Speed label
     SDL_Texture* txtSpeed = createTextTexture("SPEED SIMULATION FPS", fg, bg);
     if (txtSpeed) {
         int tw, th;
@@ -723,7 +640,6 @@ void render_ui_overlay(void) {
         SDL_DestroyTexture(txtSpeed);
     }
 
-    // FPS value
     char buf[64];
     snprintf(buf, sizeof(buf), "%d", simulationFPS);
     SDL_Texture* txtValue = createTextTexture(buf, fg, bg);
@@ -739,7 +655,6 @@ void render_ui_overlay(void) {
         SDL_DestroyTexture(txtValue);
     }
 
-    // Slider track
     int sliderX = ui_panel_rect.x + UI_SLIDER_X;
     int sliderY = ui_panel_rect.y + UI_SLIDER_Y;
     SDL_Rect track = { sliderX, sliderY, UI_SLIDER_W, UI_SLIDER_H };
@@ -747,7 +662,6 @@ void render_ui_overlay(void) {
     SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 255);
     SDL_RenderFillRect(app.renderer, &track);
 
-    // Slider knob from FPS
     const float minFPS = 10.0f;
     const float maxFPS = 90.0f;
     float t = (float)(simulationFPS - minFPS) / (maxFPS - minFPS);
@@ -760,7 +674,6 @@ void render_ui_overlay(void) {
     SDL_SetRenderDrawColor(app.renderer, 220, 220, 230, 255);
     SDL_RenderFillRect(app.renderer, &knob);
 
-    // Color mode label
     SDL_Texture* txtColor = createTextTexture("COLOR MODE", fg, bg);
     if (txtColor) {
         int tw, th;
@@ -774,7 +687,6 @@ void render_ui_overlay(void) {
         SDL_DestroyTexture(txtColor);
     }
 
-    // Color mode text rows
     const char* modeLabels[6] = {
         "MATRIX GREEN",
         "CRIMSON RED",
@@ -785,12 +697,12 @@ void render_ui_overlay(void) {
     };
 
     SDL_Color modeColors[6] = {
-        { 0,   255, 0,   255 }, // GREEN
-        { 255, 0,   0,   255 }, // RED
-        { 40,  80,  255, 255 }, // BLUE
-        { 255, 255, 255, 255 }, // WHITE
-        { 230, 230, 230, 255 }, // WAVE label base
-        { 255, 255, 255, 255 }  // RAINBOW label base
+        { 0,   255, 0,   255 },
+        { 255, 0,   0,   255 },
+        { 40,  80,  255, 255 },
+        { 255, 255, 255, 255 },
+        { 230, 230, 230, 255 },
+        { 255, 255, 255, 255 }
     };
 
     int labelBaseX = ui_panel_rect.x + UI_COLOR_LABEL_X_OFFSET;
@@ -798,26 +710,17 @@ void render_ui_overlay(void) {
 
     for (int c = 0; c < 6; ++c) {
         int rowY = labelBaseY + c * UI_COLOR_ROW_SPACING;
-
-        // default init
         modeRects[c].x = modeRects[c].y = modeRects[c].w = modeRects[c].h = 0;
 
         if (c <= 3) {
-            // Simple single color label
-            SDL_Color textColor = modeColors[c];
-            SDL_Texture* tLabel = createTextTexture(modeLabels[c], textColor, bg);
+            SDL_Texture* tLabel = createTextTexture(modeLabels[c], modeColors[c], bg);
             if (!tLabel) continue;
 
             int tw, th;
             SDL_QueryTexture(tLabel, NULL, NULL, &tw, &th);
 
             SDL_Rect textRect = { labelBaseX, rowY, tw, th };
-            SDL_Rect hitRect = {
-                        labelBaseX - 8,          // fixed left
-                        rowY - 2,                // based on row
-                        UI_COLOR_HIT_WIDTH,      // fixed width
-                        th + 4                   // height from text
-            };
+            SDL_Rect hitRect = { labelBaseX - 8, rowY - 2, UI_COLOR_HIT_WIDTH, th + 4 };
 
             if (c == headColorMode) {
                 SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
@@ -832,28 +735,16 @@ void render_ui_overlay(void) {
             modeRects[c] = hitRect;
         }
         else if (c == 4) {
-            // WAVE text in RGBW per letter
             SDL_Color waveColors[4] = {
-                { 255, 0,   0,   255 }, // W
-                { 255, 128, 0,   255 }, // A
-                { 255, 255, 0,   255 }, // V
-                { 0,   255, 0,   255 }  // E
+                { 255, 0,   0,   255 },
+                { 255, 128, 0,   255 },
+                { 255, 255, 0,   255 },
+                { 0,   255, 0,   255 }
             };
 
-            // First measure
-            SDL_Rect textRect = render_multicolor_text("WAVE",
-                labelBaseX,
-                rowY,
-                waveColors,
-                4,
-                0);
+            SDL_Rect textRect = render_multicolor_text("WAVE", labelBaseX, rowY, waveColors, 4, 0);
 
-            SDL_Rect hitRect = {
-                        labelBaseX - 8,          // fixed left
-                        rowY - 2,                // row based
-                        UI_COLOR_HIT_WIDTH,      // fixed width
-                        textRect.h + 4           // height from measurement
-            };
+            SDL_Rect hitRect = { labelBaseX - 8, rowY - 2, UI_COLOR_HIT_WIDTH, textRect.h + 4 };
 
             if (c == headColorMode) {
                 SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
@@ -862,42 +753,23 @@ void render_ui_overlay(void) {
                 SDL_RenderDrawRect(app.renderer, &hitRect);
             }
 
-            // Now draw
-            render_multicolor_text("WAVE",
-                labelBaseX,
-                rowY,
-                waveColors,
-                4,
-                1);
-
+            render_multicolor_text("WAVE", labelBaseX, rowY, waveColors, 4, 1);
             modeRects[c] = hitRect;
         }
         else if (c == 5) {
-            // RAINBOW text with rainbow colors per letter
             SDL_Color rainbowColors[7] = {
-                { 255, 0,   0,   255 }, // R
-                { 255, 128, 0,   255 }, // A
-                { 255, 255, 0,   255 }, // I
-                { 0,   255, 0,   255 }, // N
-                { 0,   0,   255, 255 }, // B
-                { 75,  0,   130, 255 }, // O
-                { 148, 0,   211, 255 }  // W
+                { 255, 0,   0,   255 },
+                { 255, 128, 0,   255 },
+                { 255, 255, 0,   255 },
+                { 0,   255, 0,   255 },
+                { 0,   0,   255, 255 },
+                { 75,  0,   130, 255 },
+                { 148, 0,   211, 255 }
             };
 
-            // Measure
-            SDL_Rect textRect = render_multicolor_text("RAINBOW",
-                labelBaseX,
-                rowY,
-                rainbowColors,
-                7,
-                0);
+            SDL_Rect textRect = render_multicolor_text("RAINBOW", labelBaseX, rowY, rainbowColors, 7, 0);
 
-            SDL_Rect hitRect = {
-                        labelBaseX - 8,          // fixed left
-                        rowY - 2,                // row based
-                        UI_COLOR_HIT_WIDTH,      // fixed width
-                        textRect.h + 4           // height from measurement
-            };
+            SDL_Rect hitRect = { labelBaseX - 8, rowY - 2, UI_COLOR_HIT_WIDTH, textRect.h + 4 };
 
             if (c == headColorMode) {
                 SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 180);
@@ -906,19 +778,11 @@ void render_ui_overlay(void) {
                 SDL_RenderDrawRect(app.renderer, &hitRect);
             }
 
-            // Draw
-            render_multicolor_text("RAINBOW",
-                labelBaseX,
-                rowY,
-                rainbowColors,
-                7,
-                1);
-
+            render_multicolor_text("RAINBOW", labelBaseX, rowY, rainbowColors, 7, 1);
             modeRects[c] = hitRect;
         }
     }
 
-    // Hint text
     SDL_Texture* txtHint = createTextTexture("PRESS F1 TO TOGGLE UI", fg, bg);
     if (txtHint) {
         int tw, th;
@@ -952,37 +816,37 @@ void initialize() {
 
     RANGE = (DM.w + CHAR_SPACING - 1) / CHAR_SPACING;
 
-    mn = malloc(RANGE * sizeof(int));
+    mn = (int*)malloc(RANGE * sizeof(int));
     if (!mn) { SDL_Log("Out of memory: mn"); terminate(1); }
 
-    speed = malloc(RANGE * sizeof(float));
+    speed = (float*)malloc(RANGE * sizeof(float));
     if (!speed) { SDL_Log("Out of memory: speed"); terminate(1); }
 
-    isActive = malloc(RANGE * sizeof(int));
+    isActive = (int*)malloc(RANGE * sizeof(int));
     if (!isActive) { SDL_Log("Out of memory: isActive"); terminate(1); }
 
-    freeIndexList = malloc(RANGE * sizeof(int));
+    freeIndexList = (int*)malloc(RANGE * sizeof(int));
     if (!freeIndexList) { SDL_Log("Out of memory: freeIndexList"); terminate(1); }
 
-    trailCounts = calloc(RANGE, sizeof(int));
+    trailCounts = (int*)calloc((size_t)RANGE, sizeof(int));
     if (!trailCounts) { SDL_Log("Out of memory: trailCounts"); terminate(1); }
 
-    trailCapacities = malloc(RANGE * sizeof(int));
+    trailCapacities = (int*)malloc(RANGE * sizeof(int));
     if (!trailCapacities) { SDL_Log("Out of memory: trailCapacities"); terminate(1); }
 
-    fadingTrails = malloc(RANGE * sizeof(StaticGlyph*));
+    fadingTrails = (StaticGlyph**)malloc(RANGE * sizeof(StaticGlyph*));
     if (!fadingTrails) { SDL_Log("Out of memory: fadingTrails"); terminate(1); }
 
-    headGlyphIndex = malloc(RANGE * sizeof(int));
+    headGlyphIndex = (int*)malloc(RANGE * sizeof(int));
     if (!headGlyphIndex) { SDL_Log("Out of memory: headGlyphIndex"); terminate(1); }
 
-    VerticalAccumulator = calloc(RANGE, sizeof(float));
+    VerticalAccumulator = (float*)calloc((size_t)RANGE, sizeof(float));
     if (!VerticalAccumulator) { SDL_Log("Out of memory: VerticalAccumulator"); terminate(1); }
 
-    ColumnTravel = calloc(RANGE, sizeof(float));
+    ColumnTravel = (float*)calloc((size_t)RANGE, sizeof(float));
     if (!ColumnTravel) { SDL_Log("Out of memory: ColumnTravel"); terminate(1); }
 
-    RainbowColumnHue = malloc(RANGE * sizeof(float));
+    RainbowColumnHue = (float*)malloc(RANGE * sizeof(float));
     if (!RainbowColumnHue) { SDL_Log("Out of memory: RainbowColumnHue"); terminate(1); }
 
     for (int i = 0; i < RANGE; ++i) {
@@ -991,11 +855,13 @@ void initialize() {
         isActive[i] = 0;
         freeIndexList[i] = i;
         trailCapacities[i] = MAX_TRAIL_LENGTH;
-        fadingTrails[i] = malloc(MAX_TRAIL_LENGTH * sizeof(StaticGlyph));
+
+        fadingTrails[i] = (StaticGlyph*)malloc(MAX_TRAIL_LENGTH * sizeof(StaticGlyph));
         if (!fadingTrails[i]) {
             SDL_Log("Out of memory: fadingTrails[%d]", i);
             terminate(1);
         }
+
         headGlyphIndex[i] = -1;
         RainbowColumnHue[i] = (float)(rand() % 360);
         ColumnTravel[i] = 0.0f;
@@ -1022,7 +888,9 @@ void initialize() {
         terminate(1);
     }
 
+    // MOUSE ALWAYS HIDDEN
     SDL_ShowCursor(SDL_DISABLE);
+
     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
 
     font1 = TTF_OpenFont("matrix.ttf", FONT_SIZE);
@@ -1031,13 +899,13 @@ void initialize() {
         terminate(1);
     }
 
-    glyph = calloc(RANGE, sizeof(SDL_Rect*));
+    glyph = (SDL_Rect**)calloc((size_t)RANGE, sizeof(SDL_Rect*));
     if (!glyph) {
         SDL_Log("Out of memory: glyph");
         terminate(1);
     }
     for (int i = 0; i < RANGE; ++i) {
-        glyph[i] = calloc(1, sizeof(SDL_Rect));
+        glyph[i] = (SDL_Rect*)calloc(1, sizeof(SDL_Rect));
         if (!glyph[i]) {
             SDL_Log("Out of memory: glyph[%d]", i);
             terminate(1);
@@ -1093,10 +961,17 @@ int main(int argc, char* argv[]) {
     Uint32 previousTime = SDL_GetTicks();
 
     while (app.running) {
+        // Enforce: mouse always hidden
+        SDL_ShowCursor(SDL_DISABLE);
+
         Uint32 frameStart = SDL_GetTicks();
         float frameTime = (float)(frameStart - previousTime);
         previousTime = frameStart;
+
+        if (frameTime > MAX_FRAME_TIME_MS) frameTime = MAX_FRAME_TIME_MS;
+
         accumulator += frameTime;
+        if (accumulator > MAX_ACCUMULATOR_MS) accumulator = MAX_ACCUMULATOR_MS;
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1107,23 +982,18 @@ int main(int argc, char* argv[]) {
             if (e.type == SDL_KEYDOWN) {
                 SDL_Keycode key = e.key.keysym.sym;
 
-                // Toggle UI overlay (always allowed)
                 if (key == SDLK_F1) {
                     ui.visible = !ui.visible;
-                    SDL_ShowCursor(ui.visible ? SDL_ENABLE : SDL_DISABLE);
+                    SDL_ShowCursor(SDL_DISABLE);
                 }
 
-                // Only allow SPACE when UI is visible
                 if (ui.visible && key == SDLK_SPACE) {
                     simulationFPS = DEFAULT_SIMULATION_FPS;
                     simulationStepMs = 1000.0f / (float)simulationFPS;
-                    headColorMode = 0; // GREEN
+                    headColorMode = 0;
                 }
 
-                // Arrow keys only work when UI is visible
                 if (ui.visible) {
-
-                    // LEFT / RIGHT adjust speed
                     if (key == SDLK_LEFT) {
                         simulationFPS -= 5;
                         if (simulationFPS < 10) simulationFPS = 10;
@@ -1134,8 +1004,6 @@ int main(int argc, char* argv[]) {
                         if (simulationFPS > 90) simulationFPS = 90;
                         simulationStepMs = 1000.0f / (float)simulationFPS;
                     }
-
-                    // UP / DOWN change color (UP goes up the list)
                     else if (key == SDLK_UP) {
                         headColorMode--;
                         if (headColorMode < 0) headColorMode = 5;
@@ -1147,25 +1015,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (ui.visible) {
-                if (e.type == SDL_MOUSEMOTION) {
-                    ui.mouseX = e.motion.x;
-                    ui.mouseY = e.motion.y;
-                    if (ui.draggingSpeedSlider) {
-                        update_speed_from_mouse(ui.mouseX);
-                    }
-                }
-                else if (e.type == SDL_MOUSEBUTTONDOWN &&
-                    e.button.button == SDL_BUTTON_LEFT) {
-                    ui.mouseX = e.button.x;
-                    ui.mouseY = e.button.y;
-                    handle_ui_mouse_down(e.button.x, e.button.y);
-                }
-                else if (e.type == SDL_MOUSEBUTTONUP &&
-                    e.button.button == SDL_BUTTON_LEFT) {
-                    ui.draggingSpeedSlider = 0;
-                }
-            }
+            // Mouse input is ignored by design.
         }
 
         while (accumulator >= simulationStepMs) {
