@@ -680,7 +680,7 @@ void render_ui_overlay(void) {
 
     const char* modeLabels[6] = {
         "MATRIX GREEN",
-        "CRIMSON RED",
+        "PREDATOR RED",
         "DIGITAL BLUE",
         "WHITE OUT",
         "WAVE",
