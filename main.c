@@ -1,6 +1,4 @@
-﻿// main.c - Matrix rain with simple SDL UI overlay (HOTKEY-ONLY, MOUSE ALWAYS HIDDEN)
-
-#include <stdlib.h>
+﻿#include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
 #include <math.h>
@@ -330,20 +328,21 @@ void render_glyph_trails(void) {
         float colTravel = ColumnTravel[col];
 
         // Defaults (GREEN)
-        float baseR = 0.0f, baseG = 128.0f, baseB = 0.0f;
-        float headR = 0.0f, headG = 200.0f, headB = 128.0f;
+        float baseR = 20.0f, baseG = 160.0f, baseB = 0.0f;   // CRT phosphor base (dim)
+        float headR = 80.0f, headG = 255.0f, headB = 110.0f;  // CRT phosphor head (bright)
 
         // For non-rainbow modes, we compute colors per-frame based on headColorMode.
         // For rainbow mode, colors are computed PER GLYPH from its stored spawnHue.
         if (headColorMode != 5) {
             switch (headColorMode) {
-            case 1: // RED
-                baseR = 128.0f; baseG = 0.0f;   baseB = 0.0f;
-                headR = 255.0f; headG = 80.0f;  headB = 80.0f;
+            case 1: // RED (Predator red)
+                // Deep, aggressive red with minimal blue to avoid magenta/pink.
+                baseR = 185.0f; baseG = 0.0f; baseB = 0.0f;
+                headR = 255.0f; headG = 200.0f; headB = 40.0f;
                 break;
-            case 2: // BLUE
-                baseR = 15.0f;  baseG = 35.0f;  baseB = 225.0f;
-                headR = 60.0f;  headG = 140.0f; headB = 255.0f;
+            case 2: // BLUE (digital)
+                baseR = 0.0f;   baseG = 0.0f;  baseB = 185.0f;
+                headR = 40.0f;   headG = 200.0f; headB = 255.0f;
                 break;
             case 3: // WHITE
                 baseR = 128.0f; baseG = 128.0f; baseB = 128.0f;
@@ -401,7 +400,8 @@ void render_glyph_trails(void) {
 
                 SDL_RenderCopy(app.renderer, texture, NULL, &bigRect);
 
-                Uint8 brightAlpha = clamp_u8_float(fadeFactor * 255.0f + 100.0f);
+                float headBoost = (headColorMode == 0) ? 25.0f : (headColorMode == 1 ? 18.0f : (headColorMode == 2 ? 12.0f : 0.0f));
+                Uint8 brightAlpha = clamp_u8_float(fadeFactor * 255.0f + 100.0f + headBoost);
                 SDL_SetTextureAlphaMod(texture, brightAlpha);
                 SDL_RenderCopy(app.renderer, texture, NULL, &SGlyph->rect);
             }
@@ -434,7 +434,12 @@ void render_glyph_trails(void) {
                 }
 
                 float glowFactor = fadeFactor * fadeFactor;
-                Uint8 glowAlpha = (Uint8)(glowFactor * 50.0f);
+
+                // Slightly stronger “phosphor bloom” for GREEN/RED/BLUE modes.
+                float glowBoost = (headColorMode == 0) ? 1.35f : (headColorMode == 1 ? 1.25f : (headColorMode == 2 ? 1.15f : 1.0f));
+                float glowA = glowFactor * 50.0f * glowBoost;
+                if (glowA > 255.0f) glowA = 255.0f;
+                Uint8 glowAlpha = (Uint8)(glowA);
 
                 SDL_SetRenderDrawColor(app.renderer, r, gCol, b, glowAlpha);
                 SDL_RenderFillRect(app.renderer, &SGlyph->rect);
@@ -679,9 +684,9 @@ void render_ui_overlay(void) {
     }
 
     const char* modeLabels[6] = {
-        "MATRIX GREEN",
-        "PREDATOR RED",
-        "DIGITAL BLUE",
+        "PHOSPHOR GREEN",
+        "CINDER RED",
+        "ELECTRON BLUE",
         "WHITE OUT",
         "WAVE",
         "RAINBOW"
@@ -793,7 +798,7 @@ void initialize() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) terminate(1);
     if (TTF_Init() < 0) terminate(1);
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 
     if (Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 4096) < 0) {
         SDL_Log("Mix_OpenAudio failed: %s", Mix_GetError());
@@ -900,6 +905,11 @@ void initialize() {
             SDL_Log("Failed to create glyph texture for %s", alphabet[i]);
             terminate(1);
         }
+
+#if SDL_VERSION_ATLEAST(2,0,12)
+        // Ensure scaled glyphs use linear filtering (bilinear sampling).
+        SDL_SetTextureScaleMode(gTextures[i].head, SDL_ScaleModeLinear);
+#endif
     }
 
     SDL_Surface* surf = TTF_RenderText_Shaded(font1, "0", bg, bg);
@@ -910,6 +920,11 @@ void initialize() {
     emptyTexture = SDL_CreateTextureFromSurface(app.renderer, surf);
     SDL_FreeSurface(surf);
 
+
+#if SDL_VERSION_ATLEAST(2,0,12)
+    // Ensure scaled empty glyphs use linear filtering (bilinear sampling).
+    SDL_SetTextureScaleMode(emptyTexture, SDL_ScaleModeLinear);
+#endif
     SDL_QueryTexture(emptyTexture, NULL, NULL, &emptyTextureWidth, &emptyTextureHeight);
     if (emptyTextureHeight == 0) {
         SDL_Log("Error: emptyTextureHeight is 0");
@@ -993,8 +1008,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
-
-            // Mouse input is ignored by design.
         }
 
         while (accumulator >= simulationStepMs) {
