@@ -328,7 +328,7 @@ void render_glyph_trails(void) {
         float colTravel = ColumnTravel[col];
 
         // Defaults (GREEN)
-        float baseR = 20.0f, baseG = 160.0f, baseB = 0.0f;   // CRT phosphor base (dim)
+        float baseR = 0.0f, baseG = 128.0f, baseB = 0.0f;   // CRT phosphor base (dim)
         float headR = 80.0f, headG = 255.0f, headB = 110.0f;  // CRT phosphor head (bright)
 
         // For non-rainbow modes, we compute colors per-frame based on headColorMode.
@@ -337,12 +337,12 @@ void render_glyph_trails(void) {
             switch (headColorMode) {
             case 1: // RED (Predator red)
                 // Deep, aggressive red with minimal blue to avoid magenta/pink.
-                baseR = 185.0f; baseG = 0.0f; baseB = 0.0f;
-                headR = 255.0f; headG = 200.0f; headB = 40.0f;
+                baseR = 128.0f; baseG = 0.0f; baseB = 0.0f;
+                headR = 255.0f; headG = 90.0f; headB = 90.0f;
                 break;
             case 2: // BLUE (digital)
                 baseR = 0.0f;   baseG = 0.0f;  baseB = 185.0f;
-                headR = 40.0f;   headG = 200.0f; headB = 255.0f;
+                headR = 120.0f;   headG = 160.0f; headB = 255.0f;
                 break;
             case 3: // WHITE
                 baseR = 128.0f; baseG = 128.0f; baseB = 128.0f;
