@@ -7,6 +7,7 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_ttf.h>
+
 // Return a random float in [0, 1].
 static float rand01(void)
 {
@@ -18,11 +19,11 @@ static float rand01(void)
 // ---------------------------------------------------------
 // Constants
 // ---------------------------------------------------------
-#define FONT_SIZE              22//11//13//22//26
-#define CHAR_SPACING           16//8//8//16//16
+#define FONT_SIZE              24//11//13//22//26
+#define CHAR_SPACING           15//8//8//16//16
 #define glyph_START_Y          -25
 #define DEFAULT_SIMULATION_FPS 30
-#define ALPHABET_SIZE          36
+#define ALPHABET_SIZE          62//36
 #define MAX_TRAIL_LENGTH       256
 
 // UI overlay
@@ -93,7 +94,7 @@ float* SpeedRetargetTimer = NULL;  // Countdown (scaled by speed) until picking 
 
 float WaveHue = 0.0f;
 
-float FadeDistance = 500.0f; //1500.0f
+float FadeDistance = 750.0f; //1500.0f
 
 int headColorMode = 0;
 // 0 = green
@@ -151,11 +152,24 @@ SDL2APP app = { .renderer = NULL, .window = NULL, .running = 1, .dy = 20 };
 SDL_Rect** glyph = NULL;
 SDL_DisplayMode DM = { .w = 0, .h = 0 };
 
+/*
 const char* alphabet[ALPHABET_SIZE] = {
     "0","1","2","3","4","5","6","7","8","9",
     "a","b","c","d","e","f","g","h","i","j",
     "k","l","m","n","o","p","q","r","s","t",
     "u","v","w","x","y","z"
+};
+*/
+
+// Array of string literals representing the glyphs used
+const char* alphabet[ALPHABET_SIZE] = {
+    "0","1","2","3","4","5","6","7","8","9",  // Digits 0-9
+    "A","B","C","D","E","F","G","H","I","J",  // Uppercase A-J
+    "K","L","M","N","O","P","Q","R","S","T",  // Uppercase K-T
+    "U","V","W","X","Y","Z","a","b","c","d",  // Uppercase U-Z and lowercase a-d
+    "e","f","g","h","i","j","k","l","m","n",  // Lowercase e-n
+    "o","p","q","r","s","t","u","v","w","x",  // Lowercase o-x
+    "y","z"                                   // Lowercase y-z
 };
 
 // ---------------------------------------------------------
@@ -572,7 +586,7 @@ int spawn(void) {
     glyph[randomIndex][0].w = emptyTextureWidth;
     glyph[randomIndex][0].h = emptyTextureHeight;
 
-    float possibleSpeeds[] = { 0.5f, 1.0f, 2.0f };
+    float possibleSpeeds[] = { 0.25f, 0.5f, 0.75f };
     float chosenSpeed;
     int attempts = 0;
 
@@ -770,7 +784,7 @@ void render_ui_overlay(void) {
         SDL_DestroyTexture(txtTitle);
     }
 
-    SDL_Texture* txtSpeed = createTextTexture("SPEED SIMULATION FPS", fg, bg);
+    SDL_Texture* txtSpeed = createTextTexture("SIMULATION SPEED", fg, bg);
     if (txtSpeed) {
         int tw, th;
         SDL_QueryTexture(txtSpeed, NULL, NULL, &tw, &th);
@@ -805,8 +819,8 @@ void render_ui_overlay(void) {
     SDL_SetRenderDrawColor(app.renderer, 70, 70, 80, 255);
     SDL_RenderFillRect(app.renderer, &track);
 
-    const float minFPS = 10.0f;
-    const float maxFPS = 90.0f;
+    const float minFPS = 15.0f;
+    const float maxFPS = 120.0f;
     float t = (float)(simulationFPS - minFPS) / (maxFPS - minFPS);
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
@@ -1155,12 +1169,12 @@ int main(int argc, char* argv[]) {
                 if (ui.visible) {
                     if (key == SDLK_LEFT) {
                         simulationFPS -= 5;
-                        if (simulationFPS < 10) simulationFPS = 10;
+                        if (simulationFPS < 15) simulationFPS = 15;
                         simulationStepMs = 1000.0f / (float)simulationFPS;
                     }
                     else if (key == SDLK_RIGHT) {
                         simulationFPS += 5;
-                        if (simulationFPS > 90) simulationFPS = 90;
+                        if (simulationFPS > 120) simulationFPS = 120;
                         simulationStepMs = 1000.0f / (float)simulationFPS;
                     }
                     else if (key == SDLK_UP) {
