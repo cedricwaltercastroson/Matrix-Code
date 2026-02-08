@@ -19,8 +19,8 @@ static float rand01(void)
 // ---------------------------------------------------------
 // Constants
 // ---------------------------------------------------------
-#define FONT_SIZE              24//11//13//22//26
-#define CHAR_SPACING           15//8//8//16//16
+#define FONT_SIZE              14//11//13//22//26
+#define CHAR_SPACING           8//8//8//16//16
 #define glyph_START_Y          -25
 #define DEFAULT_SIMULATION_FPS 30
 #define ALPHABET_SIZE          62//36
